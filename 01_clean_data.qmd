@@ -1,0 +1,711 @@
+---
+title: "Data Cleaning: ‘yourPersonality‘ data"
+author: "[blinded]" 
+toc: true
+toc-depth: 6
+toc-title: Contents
+number-sections: true
+execute:
+  cache: false
+format:
+#  docx:
+#    highlight-style: github
+  html:
+    link-external-icon: true
+    link-external-newwindow: true
+    code-block-bg: true
+    code-block-border-left: "#31BAE9"
+    embed-resources: true
+#comments:
+#  hypothesis: true
+editor: source
+bibliography: 
+#  - document_citations.bib
+  - grateful-refs.bib
+csl: apa.csl
+---
+
+# Preparations 
+
+## Load packages
+
+```{r}
+#| echo: true
+#| warning: false
+#| code-fold: true
+#| code-summary: "Show the code"
+#| cache: false
+
+library(tidyverse)
+library(labelled)
+library(psych)
+library(lavaan)
+library(grateful)
+library(knitr)
+```
+
+# Data cleaning
+
+## Load data
+
+1) Long file containing all weeks of survey data from the YourPersonality data (exploratory N=300 partial data set)  
+
+2) Long file containing all weeks of survey data from the YourPersonality data (remaining data, often used for confirmatory analyses )  
+
+Here, we combine both data sets.  
+
+```{r load}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: false
+
+df_expl <- read.delim("data/raw/explore2long.txt") %>% arrange(user_id, time) %>% as_tibble()
+df_conf <- read.delim("data/raw/confirm2long.txt") %>% arrange(user_id, time) %>% as_tibble()
+```
+
+## Combine and clean
+
+Combine both data sets 
+```{r combine}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: false
+
+# check IDs first
+df_expl %>% summarise(n_distinct(user_id))
+summary(df_expl$user_id)
+
+df_conf %>% summarise(n_distinct(user_id))
+summary(df_conf$user_id)
+
+# combine
+df_atta_full <- bind_rows(df_expl, df_conf) %>% arrange(user_id, time)
+rm(df_conf)
+rm(df_expl)
+```
+
+Select relevant variables: 
+```{r select}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: false
+
+df_atta <- df_atta_full %>% 
+  group_by(user_id) %>% # create custom ID
+  mutate(pid = cur_group_id()) %>% 
+  ungroup() %>% 
+  mutate(year = as.numeric(substr(registration_date, 1, 4))) %>% 
+  select(pid, time, sex, birthyear, year, 
+         # country, ethnicity,  # almost all from US; ethniticy was open response, therefore not really helpful
+         # from background information - assessed in the beginning and could be changed manually afterwards: 
+         education, religion, politics, libcon, involved, involved2, employed, 
+         starts_with(c("avoid", "anxiety")), # attachment variables (a-e)
+         swb, # life satisfaction
+         event_dating = event08, event_engage = event12, 
+         event_marrie = event13, event_separa = event22, event_divorc = event23, 
+         submission_date3_365, submission_date4_365)
+
+# random example of data structure:
+df_atta %>%
+  semi_join(
+    df_atta %>%
+      distinct(pid) %>%
+      slice_sample(n = 1),
+    by = "pid"
+  ) %>% select(time, submission_date3_365, involved, event_dating, event_separa, avoide, anxietye) %>% print(n=30)
+```
+
+### Filter data
+
+Filter to valid responses (broadly) 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# only keep actual answered waves (other rows are all NA)
+df_atta <- df_atta %>% 
+  filter(!is.na(submission_date3_365))
+
+# number of waves per person
+df_atta %>%
+    count(pid) %>%
+    summarise(mean_n = mean(n), median_n = median(n),
+              min_n = min(n), max_n = max(n))
+
+# example case:
+df_atta %>% 
+  filter(pid==666) %>% 
+  select(time, submission_date3_365, involved, event_dating, event_separa, avoide, anxietye) %>% print(n=30)
+# 'time' is not very useful because it just counts the assessments per person and does not consider skipped waves
+```
+
+Filter to participants with sufficient longitudinal information  
+
+We preregistered: "Altogether, we require at least 3 consecutively answered survey waves for each participant to be considered in either group."  
+
+The tricky thing is "consecutively answered" because the waves are not spaced with the same time gaps. We approximate this: everything with up to 2 months of time in between waves can be considered consecutive.  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# code months
+df_atta <- df_atta %>% 
+  rename(particip_nr = time) %>% 
+  mutate(time_years = submission_date3_365) %>% 
+  mutate(time_months = submission_date3_365 * 12,
+         time_month_rd = round(submission_date3_365 * 12))
+
+# Life events were asked with regard to time since the last assessment: "Participants were asked whether 25 life events or experiences had taken place since the last assessment."
+# code as consecutive if monthly lag is less than 3 months - or rather be more liberal = 4/5 months?
+df_atta <- df_atta %>% 
+  arrange(pid, time_months) %>% 
+  group_by(pid) %>% 
+  mutate(month_lag = time_months - lag(time_months)) %>% 
+  mutate(consec = ifelse(month_lag < 3 | (time_months==0 & lead(month_lag)<3), 1, 0)) %>% 
+  ungroup()
+
+# keep case with 3 consecutive waves:
+# A participant qualifies if there is a sequence of 3 assessments where the two gaps between them are each < 3 months.
+
+df_atta <- df_atta %>% 
+  group_by(pid) %>% 
+  mutate(three_consec = consec & lag(consec) & lag(consec, n=2)) %>% 
+  ungroup()
+
+# example of included pid:
+df_atta %>% 
+  filter(pid==91) %>% 
+  select(pid, particip_nr, time_years, time_months, month_lag, consec, three_consec)
+
+# example of excluded pid:
+df_atta %>% 
+  filter(pid==1580) %>% 
+  select(pid, particip_nr, time_years, time_months, month_lag, consec, three_consec)
+
+# extract eligible pid's
+eligible_pid <- df_atta %>% 
+  filter(three_consec==TRUE) %>% 
+  pull(pid) %>% unique()
+
+# filter data to these cases:
+df_atta <- df_atta %>% 
+  filter(pid %in% eligible_pid)
+
+# check again: number of waves per person
+df_atta %>%
+    count(pid) %>%
+    summarise(mean_n = mean(n), median_n = median(n),
+              min_n = min(n), max_n = max(n))
+```
+
+### Form groups
+
+1st: consistently single people
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# Prereg: "For someone to be included in the group of consistently single people, they need to have consistently answered the relationship status question with “No” and also not have selected any of the relationship life events mentioned above."
+
+df_atta %>% filter(is.na(involved2)) %>% summarise(n(), n_distinct(pid)) # drop these participants altogether
+
+df_atta <- df_atta %>% 
+  filter(!pid %in% (df_atta %>% filter(is.na(involved2)) %>% pull(pid) %>% unique()))
+
+# sum up all rel. status info per person (has to be all 0!) / then divide by number of waves
+df_atta <- df_atta %>% 
+  group_by(pid) %>% 
+  mutate(prop_rel = sum(involved2) / n()) %>% 
+  ungroup()
+
+# These are the events we consider - all have to stay 0 throughout!
+df_atta %>% filter(prop_rel==0 & pid==27) %>% 
+  select(pid, time_months, starts_with("event")) %>% print(n=20) # example case who dated casually
+
+df_atta <- df_atta %>% 
+  group_by(pid) %>% 
+  mutate(sum_events = sum(event_dating + event_engage + event_marrie + event_separa + event_divorc)) %>% 
+  ungroup()
+
+df_atta <- df_atta %>% 
+  mutate(single_consist = ifelse(prop_rel==0 & sum_events==0, 1, 0))
+
+df_atta %>% filter(single_consist==1) %>% summarise(n = n(), N=n_distinct(pid))
+```
+
+2nd: consistently partnered people
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# Prereg: "For someone to be included in the group of consistently partnered individuals, they need to have consistently answered the relationship status question with either “Yes, I am dating someone”, or “Yes, I am married”, while also never selecting the events indication new relationship formation, break-up, or divorce."
+
+# These are the events we consider - all have to stay 0 throughout!
+df_atta %>% filter(prop_rel==1 & pid==18) %>% 
+  select(pid, time_months, event_dating, event_separa, event_divorc) %>% print(n=20) # example case
+
+df_atta <- df_atta %>% 
+  group_by(pid) %>% 
+  mutate(sum_events_3 = sum(if_else(row_number() == 1, 0L, event_dating) + # starting dating in the first wave is allowed
+                              event_separa + event_divorc)) %>% 
+  ungroup()
+
+df_atta <- df_atta %>% 
+  mutate(partner_consist = ifelse(prop_rel==1 & sum_events_3==0, 1, 0))
+
+df_atta %>% filter(partner_consist==1) %>% summarise(n = n(), N=n_distinct(pid))
+```
+
+3rd: intermittently partnered people
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# Prereg: "Finally, for someone to be included in the group of intermittently partnered individuals, they need to have answered the relationship status question with “Yes, I am dating someone”, or “Yes, I am married” at least once and with “No” at least once. No additional conditions due to life events are applied."
+
+df_atta <- df_atta %>% 
+  mutate(partner_interm = ifelse(prop_rel>0 & prop_rel<1, 1, 0))
+
+df_atta %>% filter(partner_interm==1) %>% summarise(n = n(), N=n_distinct(pid))
+# slightly higher number of waves per person here
+```
+
+Last, we also need another group for the selection effects (RQ1): "... with consistent singlehood (0 = no, initially single but later find partner, 1 = yes, consistently single) as the outcome"
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# single at baseline but later find a partner
+# first: single at baseline
+df_atta <- df_atta %>% 
+  mutate(single_w1 = ifelse(particip_nr==0 & involved2==0, 1, 0)) %>% 
+  group_by(pid) %>% 
+  mutate(single_w1_max = max(single_w1)) %>% 
+  ungroup()
+
+# second: combine with prop_rel
+df_atta <- df_atta %>% 
+  mutate(single_later_partn = ifelse(single_w1_max==1 & prop_rel>0, 1, 0))
+
+# below, we combine these to form a distinct analysis df for RQ1
+# - consistently single & initially single, later partnered
+```
+
+Now filter to include only those who are in one of the three (plus 1) groups: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# Prereg: "Finally, for someone to be included in the group of intermittently partnered individuals, they need to have answered the relationship status question with “Yes, I am dating someone”, or “Yes, I am married” at least once and with “No” at least once. No additional conditions due to life events are applied."
+
+df_atta <- df_atta %>% 
+  filter(single_consist==1 | partner_consist==1 | partner_interm==1 | single_later_partn==1)
+# the cases that are dropped could not be clearly categorized (e.g., always involved==1 but still reporting events)
+```
+
+### Code time
+
+A few descriptive numbers first: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# distribution of max_month (time from registration to last assessment):
+df_atta %>%
+    group_by(pid) %>%
+    summarise(
+        n_assessments = n(),
+        max_month = max(submission_date3_365 * 12)
+    ) %>%
+    summarise(
+        mean_max = mean(max_month),
+        median_max = median(max_month),
+        q90 = quantile(max_month, .90),
+        q95 = quantile(max_month, .95),
+        max = max(max_month)
+    )
+# Half of participants finish their available assessments by ~16 months. 10% extend beyond ~31 months. A small but non-negligible group extends to ~3–3.5 years.
+
+# Calculate the relationship between: number of assessments completed & maximum follow-up time
+df_atta %>%
+    group_by(pid) %>%
+    summarise(
+        n_assessments = n(),
+        max_month = max(submission_date3_365 * 12)
+    ) %>%
+    cor() # 0.76 is the relevant cor -> people with more assessments tend to be observed over longer periods
+
+# describe extent of deviations through rounding:
+df_atta %>%
+  mutate(rounding_error = time_months - time_month_rd,
+         abs_rounding_error = abs(rounding_error)) %>%
+  summarise(
+    mean_abs_error = mean(abs_rounding_error, na.rm = TRUE),
+    median_abs_error = median(abs_rounding_error, na.rm = TRUE),
+    q95_abs_error = quantile(abs_rounding_error, 0.95, na.rm = TRUE),
+    max_abs_error = max(abs_rounding_error, na.rm = TRUE)
+  )
+
+df_atta %>% count(time_month_rd) %>% print(n=50)
+# may be good to use a monthly grid up to ~32–35 months and discard later months
+
+# Another issue: the rounding creates duplicate person-months. This cannot be handled when transforming to wide format.
+```
+
+For now we try with 35 months as the upper limit:
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+df_atta <- df_atta %>% 
+  filter(time_month_rd<=35)
+# This drops 191 obs 107 from pers
+
+df_atta %>% count(time_month_rd) %>% print(n=50)
+```
+
+Deal with duplicate person-months:
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# get some information first
+df_atta %>%
+  count(pid, time_month_rd) %>%
+  filter(n > 1) %>%
+  summarise(
+    n_duplicate_cells = n(),
+    n_people = n_distinct(pid),
+    max_duplicates = max(n)
+  )
+# only 1.6% extra observations due to duplicate person-months
+
+df_atta %>%
+  group_by(pid, time_month_rd) %>%
+  filter(n() > 1) %>%
+  summarise(
+    min_time = min(time_months),
+    max_time = max(time_months),
+    spread = max_time - min_time,
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  summarise(
+    median_spread = median(spread),
+    q95 = quantile(spread, .95),
+    max_spread = max(spread)
+  )
+# spread = max(time_months) - min(time_months)
+# Median spread = ~3 days
+# 95th percentile	~22 days
+# Maximum	~30 days
+
+# this participant should be dropped altogether (must be a more serious error):
+df_atta %>% 
+  filter(pid==97) %>% 
+  select(pid, particip_nr, time_years, time_months, time_month_rd, avoide, anxietye) %>% print(n=100)
+df_atta <- df_atta %>% 
+  filter(pid!=97)
+
+# With the other cases, I will first attempt a repair / correction function to "save" some cases where the earlier rounding artificially caused duplicate months. Second, I will drop any remaining duplicate person-months, keeping only the first.
+
+# Step 1: Create a copy of the rounded month variable
+df_atta <- df_atta %>%
+  mutate(time_month_rd_corrected = time_month_rd)
+# Step 2: Identify duplicate person-month combinations
+duplicates_month <- df_atta %>%
+  count(pid, time_month_rd) %>%
+  filter(n > 1)
+# Step 3: Add the duplicate information back to the data
+df_atta <- df_atta %>%
+  left_join(
+    duplicates_month %>% 
+      select(pid, time_month_rd, n),
+    by = c("pid", "time_month_rd")
+  ) %>%
+  rename(n_same_month = n)
+
+# Step 4: Calculate exact-time gaps within duplicated months
+#For each duplicate month, order observations by their actual time:
+df_atta <- df_atta %>%
+  group_by(pid, time_month_rd) %>%
+  arrange(time_months, .by_group = TRUE) %>%
+  mutate(
+    duplicate_order = if_else(
+      n_same_month > 1,
+      row_number(),
+      NA_integer_
+    ),
+    duplicate_gap = if_else(
+      n_same_month > 1,
+      time_months - lag(time_months),
+      NA_real_
+    )
+  ) %>%
+  ungroup()
+
+# Step 5: Identify repair candidates
+# rules: duplicated month; second observation in that month; exact gap ≥ 3/5 month; next month is currently "empty"
+df_atta <- df_atta %>% # First create a variable for the possible shifted month
+  mutate(proposed_month = time_month_rd + 1)
+
+occupied_months <- df_atta %>% # Then check whether that month already exists for that person
+  select(pid, time_month_rd) %>%
+  distinct() %>%
+  mutate(month_exists = TRUE)
+
+df_atta <- df_atta %>%
+  left_join(
+    occupied_months %>%
+      rename(
+        proposed_month = time_month_rd,
+        proposed_exists = month_exists
+      ),
+    by = c("pid", "proposed_month")
+  )
+# Step 6: Flag observations that can be shifted
+df_atta <- df_atta %>%
+  mutate(
+    repair_duplicate = 
+      n_same_month > 1 &
+      duplicate_order == 2 &
+      duplicate_gap >= (3/5) & # pretty arbitrary but this seems reasonable
+      is.na(proposed_exists),
+      TRUE,
+      FALSE)
+table(df_atta$repair_duplicate) # this only concerns 25 observations
+
+# Inspect cases: 
+df_atta %>%
+  filter(repair_duplicate) %>%
+  select(pid, particip_nr, time_months, time_month_rd, proposed_month, duplicate_gap) %>% print(n=50)
+
+# Step 7: Apply the correction
+# Only now modify the corrected variable:
+df_atta <- df_atta %>%
+  mutate(time_month_rd_corrected = if_else(repair_duplicate %in% TRUE,
+                                           proposed_month,
+                                           time_month_rd))
+
+# Drop variables:
+df_atta <- df_atta %>%
+  select(-time_month_rd) %>%
+  rename(time_month_rd = time_month_rd_corrected) %>% 
+  select(-n_same_month, -duplicate_order, -duplicate_gap, -proposed_month, -proposed_exists, 
+         -repair_duplicate, -"TRUE", -"FALSE")
+
+# Quantify remaining duplicate person-months: 
+df_atta %>%
+  count(pid, time_month_rd) %>%
+  filter(n > 1) %>%
+  summarise(
+    duplicate_cells = n(),
+    participants = n_distinct(pid)
+  )
+
+# distance 
+df_atta %>%
+    group_by(pid, time_month_rd) %>%
+    summarise(
+        spread = max(time_months) - min(time_months),
+        n = n(),
+        .groups = "drop"
+    ) %>%
+    summarise(
+        median_spread = median(spread),
+        q95_spread = quantile(spread, .95),
+        max_spread = max(spread)
+    )
+```
+
+Drop the remaining duplicate person-months: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+df_atta %>% summarise(n = n(), N = n_distinct(pid))
+  
+df_atta <- df_atta %>%
+  arrange(pid, time_months) %>%
+  group_by(pid, time_month_rd) %>%
+  slice_head(n=1) %>%
+  ungroup()
+
+df_atta %>% summarise(n = n(), N = n_distinct(pid))
+# 589 duplicate assessments dropped
+
+table(df_atta$time_month_rd, useNA = "always")
+```
+
+## Code demographic variables
+
+Gender: 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+df_atta %>% group_by(sex) %>% tally()
+
+df_atta <- df_atta %>% 
+  mutate(woman = if_else(sex=="0", 1, 0, NA_real_),
+         man = if_else(sex=="1", 1, 0, NA_real_))
+```
+
+Age:
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| width: 5
+#| height: 5
+
+df_atta %>% group_by(pid) %>%
+  slice_head(n=1) %>%
+  ungroup() %>% pull(birthyear) %>% hist()
+
+df_atta <- df_atta %>% 
+  mutate(age = ifelse(!is.na(birthyear), year-birthyear, NA))
+
+df_atta %>% filter(is.na(age)) %>% select(1:5, age, sex) 
+# partly missing demographic information for 3 participants
+
+# also code age at baseline
+df_atta <- df_atta %>% 
+  mutate(age_base = ifelse(particip_nr==0, age, NA))
+
+df_atta <- df_atta %>% 
+  fill(age_base, .direction = "downup", .by = pid)
+
+df_atta %>% select(1:5, age, sex, age_base) %>% filter(age!=age_base) 
+# these are the same; not really necessary (likely that 'year' just refers to the baseline) -> but ok for us!
+```
+
+## RQ1: selection effects data frame
+
+### Filter and collapse to cross-sectional
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+df_atta_rq1 <- df_atta %>%
+  filter(single_consist==1 | single_later_partn==1) %>% 
+  filter(particip_nr==0) 
+```
+
+### z-standardize
+
+prereg: "... and both attachment anxiety and avoidance as predictors, which will be z-standardized."
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# Z-standardize attachment variables (for RQ1 logistic analyses)
+df_atta_rq1 <- df_atta_rq1 %>%
+  mutate(across(
+    c(avoide, avoida, avoidb, avoidc, avoidd,
+      anxietye, anxietya, anxietyb, anxietyc, anxietyd),
+    ~ as.numeric(scale(.)),
+    .names = "{.col}_z"))
+```
+
+### Keep relevant variables
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# Z-standardize attachment variables (for RQ1 logistic analyses)
+df_atta_rq1 <- df_atta_rq1 %>%
+  select(pid, 
+         single_consist, single_later_partn, 
+         age_base, man, woman,
+         ends_with("_z"),
+         education, religion, politics, libcon, involved)
+
+df_atta_rq1 <- df_atta_rq1 %>% 
+  mutate(grp = case_when(single_consist==1 ~ "Consistently single people",
+                         single_later_partn==1 ~ "Initially single, later partnered",
+                         .default = NA_character_)) %>% 
+  mutate(group_fct_rq1 = factor(grp, 
+                            levels = c("Consistently single people", "Initially single, later partnered"), 
+                            labels = c("Consistently single people", "Initially single, later partnered"), ordered = TRUE)) %>%
+  select(-grp)
+
+table(df_atta_rq1$group_fct_rq1) # looks good
+```
+
+# Longitudinal: Keep relevant variables
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+
+df_atta <- df_atta %>% 
+  select(pid, particip_nr, starts_with("time_"),
+         single_consist, partner_consist, partner_interm, 
+         age_base, man, woman, 
+         starts_with(c("avoid", "anxiet")), swb,
+         education, religion, politics, libcon, involved,
+         starts_with("event_"))
+```
+
+# Save cleaned data
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+base::save(df_atta, file = "data/cleaned/df_atta.rda")
+base::save(df_atta_rq1, file = "data/cleaned/df_atta_rq1.rda")
+```
+
+# Packages used
+
+```{r pkgs}
+pkgs <- grateful::cite_packages(output = "table", out.dir = ".")
+knitr::kable(pkgs)
+```

@@ -8,6 +8,7 @@
 
 # User-specific files
 .Ruserdata
+.Rprofile
 
 # Example code in package build process
 *-Ex.R
@@ -50,3 +51,10 @@ rsconnect/
 
 # custom folders
 data/
+figures/
+models/
+02_analyses_files/
+
+# renv
+# renv.lock # this can be uploaded
+renv/
