@@ -46,8 +46,10 @@ library(Hmisc)
 library(corrplot)
 library(purrr)
 library(broom)
+library(broom.mixed)
 library(kableExtra)
 library(ggh4x)
+library(lmerTest)
 ```
 
 Globals:
@@ -1435,7 +1437,7 @@ From prereg: "In the sample of single people at baseline, we will run logistic r
 
 Logistic regression = pure between-person comparison  
 
-Global attachment:  
+### Global attachment
 
 ```{r selection-logistic-glo}
 #| echo: true
@@ -1452,7 +1454,7 @@ sel_glo <- glm(formula_sel_glo,
 summary(sel_glo)
 ```
 
-Romantic attachment:  
+### Romantic attachment  
 
 ```{r selection-logistic-rom}
 #| echo: true
@@ -1469,7 +1471,7 @@ sel_rom <- glm(formula_sel_rom,
 summary(sel_rom)
 ```
 
-Friend-specific attachment:  
+### (Best) Friend-specific attachment  
 
 ```{r selection-logistic-fri}
 #| echo: true
@@ -1486,7 +1488,7 @@ sel_fri <- glm(formula_sel_fri,
 summary(sel_fri)
 ```
 
-Mother-specific attachment:  
+### Mother-specific attachment  
 
 ```{r selection-logistic-mot}
 #| echo: true
@@ -1503,7 +1505,7 @@ sel_mot <- glm(formula_sel_mot,
 summary(sel_mot)
 ```
 
-Father-specific attachment:  
+### Father-specific attachment  
 
 ```{r selection-logistic-fat}
 #| echo: true
@@ -1535,14 +1537,14 @@ Gather estimates:
 df_summa_sel_logist <- bind_rows(
   broom::tidy(sel_glo, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Global"),
   broom::tidy(sel_rom, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Romantic"),
-  broom::tidy(sel_fri, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Friend"),
+  broom::tidy(sel_fri, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Best Friend"),
   broom::tidy(sel_mot, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Mother"),
   broom::tidy(sel_fat, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Father"))
 
 df_summa_sel_logist <- df_summa_sel_logist %>% 
   mutate(domain_fct = factor(domain, 
-                             levels = c("Global", "Romantic", "Friend", "Mother", "Father"), 
-                             labels = c("Global", "Romantic", "Friend", "Mother", "Father"), ordered = TRUE))
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"), 
+                             labels = c("Global", "Romantic", "Best Friend", "Mother", "Father"), ordered = TRUE))
 ```
 
 ```{r selection-logistic-table}
@@ -1565,10 +1567,98 @@ df_summa_sel_logist %>%
     `OR (95% CI)` = sprintf("%.2f (%.2f, %.2f)", OR, CI_low, CI_high),
     p = format.pval(p.value, digits = 3, eps = .001)) %>%
   select(domain, pred, `OR (95% CI)`, p) %>%
-  arrange(factor(domain, levels = c("Global", "Romantic", "Friend", "Mother", "Father")),
+  arrange(factor(domain, levels = c("Global", "Romantic", "Best Friend", "Mother", "Father")),
           pred) %>%
   kable()
 ```
+
+### Summary plot
+
+Create plots for manuscript: start with extracting the parameters
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Prepare RQ1 forest-plot df
+rq1_plot_df <- df_summa_sel_logist %>% 
+  filter(term %in% c("anxi_glo_z", "avoi_glo_z", "anxi_rom_z", "avoi_rom_z",
+                     "anxi_fri_z", "avoi_fri_z", "anxi_mot_z", "avoi_mot_z",
+                     "anxi_fat_z", "avoi_fat_z")) %>% 
+  mutate(pred_fct = factor(if_else(str_detect(term, "^anxi"), "Anxiety", "Avoidance"),
+                           levels = c("Avoidance", "Anxiety"), labels = c("Avoidance", "Anxiety"), ordered = T))
+```
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# for alternating background color:
+bg_df_rq1 <- data.frame(
+  ymin = seq(0.5, 4.5, by = 1),
+  ymax = seq(1.5, 5.5, by = 1),
+  fill = rep(c("white", "grey90"), length.out = 5))
+
+# Forest plot with reversed display order
+plot_rq1_or <- ggplot(rq1_plot_df, aes(x = estimate, 
+                                                y = forcats::fct_rev(domain_fct),
+                                                colour = forcats::fct_rev(pred_fct), 
+                                                shape = forcats::fct_rev(pred_fct))) +
+  geom_rect(data = bg_df_rq1,
+            aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax),
+            inherit.aes = FALSE,
+            fill = bg_df_rq1$fill,
+            alpha = 0.5) +
+  geom_vline(xintercept = 1, colour = "black") +
+  geom_point(size = 2.5, position = position_dodge(width = 0.6)) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), 
+                 height = 0.3, position = position_dodge(width = 0.6),
+                 linewidth = 0.3, alpha = 0.85) +
+  scale_colour_manual(values = c("Avoidance" = "#D55E00", "Anxiety" = "#0072B2"),
+                      breaks = c("Avoidance", "Anxiety")) +
+  scale_shape_manual(values = c("Avoidance" = 17, "Anxiety" = 16),
+                     breaks = c("Avoidance", "Anxiety")) +
+  scale_x_continuous(limits = c(0.75, 1.80), breaks = seq(0.75, 1.75, by = 0.25), oob = scales::oob_keep) +
+  labs(x = "Odds Ratio (95% CI)", y = NULL, colour = NULL, shape = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank(), 
+        panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3), panel.grid.minor.x = element_blank()) +
+  guides(colour = guide_legend(title = "Predictor"),
+         shape = guide_legend(title = "Predictor"))
+
+# save as pdf
+pdf(width = 6, height = 4.5, "figures/rq1_plot_or.pdf")
+plot_rq1_or
+dev.off()
+```
+
+Show plot: 
+```{r rq1-summary-plot-show}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4.5
+#| cache: false
+
+plot_rq1_or
+```
+
+::: {.callout-note appearance="minimal"}
+Hypothesis confirmed for global and romantic avoidance, but n.s. for anxiety (also the case in single-predictor models): With higher global and romantic attachment avoidance, single people (at baseline) were more likely to remain single consistently throughout the observation period.  
+In addition:  
+- With higher friend-specific avoidance and anxiety, people were more likely to remain single.  
+- With higher mother-specific anxiety, people were more likely to remain single (but n.s. for avoidance).  
+:::
 
 ## RQ2: Changes in Attachment Models
 
@@ -1657,16 +1747,18 @@ summary(fit_rq2_avoi_glo_partn_c_example, fit.measures = TRUE, standardized = TR
 ```
 
 ::: {.callout-note appearance="minimal"}
-Global avoidance decreases over time in both groups, with slightly more pronounced decreases in single people. No significant age moderation (but good that we control for age differences). 
+Global avoidance decreases over time in both groups, with slightly more pronounced decreases in single people. No significant age moderation (but good that we control for age differences).  
+
+No support for our hypothesis (on the descriptive level) - next, we test these slope differences formally.  
 :::
 
 
 ::: {.callout-note appearance="minimal"}
 A few warning messages appear:  
-- 1 case is dropped because of a missing value in age. No problem, I think. N = 592 now. (as an exogenous variable, missingsness in age is not handled with FIML)  
+- 1 case is dropped because of a missing value in age. THis is no problem -> N = 592 now. (as an exogenous variable, missingsness in age is not handled with FIML)  
 - Low coverage at later time points: this was to be expected, with increased dropout and up to 30 months of data (e.g., 84% missingness at t20, and 92% at t29). I think it's no big issue here, given that the model still converged, produced no implausible estimates, and resulted in decent fit indices (at least in the traditional ones; some of the "robust" ones could not be estimated properly...)  
 - EM estimated variance-covariance matrix (Sigma) is (near) singular: also not surprising given the data structure and missingness -> lavInspect(fit_rq2_avoi_glo_example, "post.check") indicates TRUE, meaning that the final fitted model covariance structure is admissible  
-- In pchisq(x2, df = df, ncp = ncp) : NaNs produced -> This may relate to some of the chi-square based fit statistics.  
+- In pchisq(x2, df = df, ncp = ncp) : NaNs produced -> This may relate to some of the (robust) chi-square based fit statistics.  
 
 --> Models were estimated using FIML to account for missing observations. Due to the longitudinal design and increasing attrition at later waves, some covariance estimates were based on limited pairwise coverage. All models converged and yielded admissible solutions.  
 --> Below, we provide more details on all models in "Model fit" and "Model diagnostics".  
@@ -1739,7 +1831,9 @@ summary(fit_rq2_mg_avoi_glo_example, fit.measures = TRUE, standardized = TRUE, c
 ```
 
 ::: {.callout-note appearance="minimal"}
-Descriptively, the global avoidance decreases are somewhat more pronounced in single people compared to partnered people. Single people start with higher avoidance at baseline, though. The difference in slopes is not sufficient, though, to "offset" this intercept difference. No significant age moderation in either group. 
+Descriptively, the global avoidance decreases are somewhat more pronounced in single people compared to partnered people. Single people also start with higher avoidance at baseline. The difference in slopes is not sufficient, though, to "offset" this initial intercept difference. No significant age moderation in either group.  
+
+Similar warning messages as above. See my explanation there.  
 :::
 
 Formal test of group differences: "Likelihood ratio tests will indicate whether a model constraining the latent slope parameters to be equal across groups fits the data better compared to a model freely estimating them."  
@@ -1777,7 +1871,7 @@ No significant group differences in the slopes according to LRT.
 
 Run loop over all 5 X 2 outcomes  
 
-(Here, I suppress lavaan warnings in the html output, but they are very similar to the ones shown above for the example model. Below, I go into model diagnostics more systematically.)  
+(Here, I suppress lavaan warnings in the html output, but they are pretty much the same ones as shown above for the example model. Below, I go into model diagnostics more systematically.)  
 
 ```{r rq2-loop}
 #| echo: true
@@ -2003,6 +2097,10 @@ rq2_fit_mg %>%
   kable(digits = 3)
 ```
 
+::: {.callout-note appearance="minimal"}
+Decent fit across all models. SRMR is somewhat high but this is a relatively highly parameterized longitudinal SEM (30 time points) where this is to be expected. In addition, we estimate manifest models here and don't focus on latent constructs.  
+:::
+
 ### Model diagnostics
 
 - Did the model converge?  
@@ -2045,6 +2143,10 @@ rq2_diagnostics <- purrr::map_dfr(rq2_models, function(x) {
 rq2_diagnostics %>% kable(digits = 3)
 ```
 
+::: {.callout-note appearance="minimal"}
+Nothing suspicious in these diagnostics.  
+:::
+
 #### Multi-group models
 
 ```{r}
@@ -2076,6 +2178,10 @@ rq2_mg_diagnostics <- purrr::map_dfr(rq2_mg_models, function(x) {
 rq2_mg_diagnostics %>% kable(digits = 3)
 ```
 
+::: {.callout-note appearance="minimal"}
+Nothing suspicious in these diagnostics.  
+:::
+
 ### Summary tables
 
 #### Single-group models
@@ -2093,7 +2199,8 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1):
 rq2_table_a <- rq2_summary_single %>% 
   filter(term=="a0" | term=="a1") %>%
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq2_table_a %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2103,7 +2210,7 @@ rq2_table_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Some descriptive slope differences across groups, for example, Avoidance (Romantic) and Avoidance (Mother). We test these diffs below for significance.
 :::
 
 Latent intercept-slope covariance: (cis) 
@@ -2119,7 +2226,8 @@ Latent intercept-slope covariance: (cis)
 rq2_table_cis <- rq2_summary_single %>% 
   filter(term=="cis") %>% 
   arrange(outc_fct, group_fct) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq2_table_cis %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2129,7 +2237,7 @@ rq2_table_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Generally, with higher avoidance/anxiety, people decreased more over time. Across groups, these intercept-slope covariances differ slightly in some case. For example, for global avoidance and anxiety, it is stronger among partnered people. However, for Avoidance: Mother and Anxiety: Best Friend it is stronger among single people. 
 :::
 
 Variances of the latent intercept and slope factors: (vi) & (vs)
@@ -2145,7 +2253,8 @@ Variances of the latent intercept and slope factors: (vi) & (vs)
 rq2_table_v <- rq2_summary_single %>% 
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
 
 rq2_table_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2155,7 +2264,7 @@ rq2_table_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Substantial heterogeneity in change ("vs"). This heterogeneity is especially pronounced for Avoidance: Best Friend, Avoidance: Mother, Avoidance: Father, Anxiety: Global, Anxiety: Romantic, and Anxiety: Best Friend. 
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)
@@ -2171,7 +2280,8 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 rq2_table_b <- rq2_summary_single %>% 
   filter(term=="bi" | term=="bs") %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq2_table_b %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2181,7 +2291,9 @@ rq2_table_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Not very consistent evidence for age moderation but a few significant effects emerge:  
+- Anxiety: Global and Anxiety: Romantic decreases in consistently partnered people are less pronounced with older age.  
+- Anxiety: Mother and Anxiety: Father decreases in consistently single people are more pronounced with older age.  
 :::
 
 #### Multi-group models
@@ -2201,7 +2313,8 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)
 rq2_table_mg_a <- rq2_summary_mg %>% 
   filter(stringr::str_starts(term, "a")) %>%
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, lrt_chi, lrt_p)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, lrt_chi, lrt_p)
 
 rq2_table_mg_a %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2211,7 +2324,9 @@ rq2_table_mg_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Very similar slope estimates compared to the single-group models above.  
+- Only one domain was tested as significant in their slope group differences: Avoidance (Mother). Here, consistently single people decreases more strongly than partnered people.   
+- For Avoidance: Romantic it's relatively close (p = .067) but in the opposite direct as we expected. Over time, singles decreased more than partnered people in their romantic avoidance (... they also started out higher).  
 :::
 
 Latent intercept-slope covariance: (cis)  
@@ -2229,7 +2344,8 @@ Latent intercept-slope covariance: (cis)
 rq2_table_mg_cis <- rq2_summary_mg %>% 
   filter(stringr::str_starts(term, "cis")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq2_table_mg_cis %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2239,7 +2355,7 @@ rq2_table_mg_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Highly similar to what is estimated in the single-group models.
 :::
 
 Variances of the latent intercept and slope factors: (vi) & (vs)  
@@ -2257,7 +2373,8 @@ Variances of the latent intercept and slope factors: (vi) & (vs)
 rq2_table_mg_v <- rq2_summary_mg %>% 
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
 
 rq2_table_mg_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2267,7 +2384,7 @@ rq2_table_mg_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Highly similar to what is estimated in the single-group models.
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)  
@@ -2285,7 +2402,8 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 rq2_table_mg_b <- rq2_summary_mg %>% 
   filter(stringr::str_starts(term, "b")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq2_table_mg_b %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2295,9 +2413,8 @@ rq2_table_mg_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Highly similar to what is estimated in the single-group models.
 :::
-
 
 ### Summary plot
 
@@ -2376,7 +2493,7 @@ plot_traject_df_rq2 <- plot_traject_df_rq2 %>%
   mutate(outc_fct_label = factor(outc_fct_label, levels = unique(outc_fct_label), ordered = TRUE))
 ```
 
-Creat and save plot: 
+Create and save plot: 
 ```{r}
 #| echo: true
 #| warning: false
@@ -2385,21 +2502,26 @@ Creat and save plot:
 #| code-fold: true
 #| code-summary: "Show the code"
 
-# Define custom group colours
-group_colors <- c("Consistently single" = "steelblue4", "Consistently partnered" = "darkorange2")
+# Define custom group colours and linetypes
+group_colors <- c("Consistently single" = "#008837", "Consistently partnered" = "#A23E48")
+group_linetypes <- c("Consistently single" = "solid", "Consistently partnered" = "longdash")
 
 # Plot RQ2 model-implied trajectories with 95% confidence bands
 plot_rq2_traject <- ggplot(plot_traject_df_rq2, aes(x = time_years, y = estimate, 
-                                                     colour = group_fct, fill = group_fct)) +
+                                                     colour = group_fct, fill = group_fct,
+                                                     linetype = group_fct)) +
   geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = .20, colour = NA) +
   geom_line(linewidth = 1) +
   scale_colour_manual(values = group_colors) +
   scale_fill_manual(values = group_colors) +
+  scale_linetype_manual(values = group_linetypes) +
   facet_wrap(~outc_fct_label, ncol = 2, nrow = 5, scales = "free_y", dir = "v") +
   ggh4x::facetted_pos_scales(y = y_scales_rq2) +
-  labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)", colour = NULL, fill = NULL) +
+  labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)", 
+       colour = NULL, fill = NULL, linetype = NULL) +
   guides(colour = guide_legend(title = "Group"),
-         fill = guide_legend(title = "Group")) +
+         fill = guide_legend(title = "Group"),
+         linetype = guide_legend(title = "Group")) +
   theme_bw() +
   theme(strip.text = element_text(size = 10),
         strip.background = element_rect(fill = "grey95"),
@@ -2409,8 +2531,6 @@ plot_rq2_traject <- ggplot(plot_traject_df_rq2, aes(x = time_years, y = estimate
         panel.grid.minor.y = element_blank(),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank())
-
-plot_rq2_traject
 
 # save as pdf
 pdf(width = 6.5, height = 7.5, "figures/rq2_traject.pdf")
@@ -2422,11 +2542,15 @@ Show plot:
 ```{r rq2-summary-plot-show}
 #| echo: true
 #| fig-width: 6.5
-#| fig-height: 7.5
+#| fig-height: 9.5
 #| cache: false
 
 plot_rq2_traject
 ```
+
+::: {.callout-note appearance="minimal"}
+No support for our hypotheses and overall only very limited evidence that consistently single vs. partnered people change differently in their attachment over time. Some of the gaps are still quite sizeable, reflecting baseline differences and potentially selection effects - especially for global avoidance and anxiety as well as romantic avoidance and anxiety. Also, somewhat of a gap in friend-specific anxiety. Single people are less securely attached in these domains throughout.
+:::
 
 ### Full model results
 
@@ -3162,9 +3286,7 @@ for (i in 1:length(outcomes$short)) {
 }
 ```
 
-Create summary table of all effects of interest:  
-
-First, parameter extraction  
+Create summary table of all effects of interest: parameter extraction  
 ```{r}
 #| echo: true
 #| warning: false
@@ -3304,7 +3426,8 @@ Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alp
 rq3_table_a <- rq3_summary %>% 
   filter(term=="a0" | term=="a1" | term=="w0" | term=="w1") %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq3_table_a %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -3325,7 +3448,7 @@ Latent intercept / slope variances & covariance - general terminology:
 - (i) = latent intercept  
 - (s) = latent slope   
 
-First, cross-construct covariances (which are most relevant for the hypotheses):  
+Cross-construct covariances (which are most relevant for the hypotheses):  
 
 ```{r}
 #| echo: true
@@ -3338,7 +3461,8 @@ First, cross-construct covariances (which are most relevant for the hypotheses):
 rq3_table_cross <- rq3_summary %>% 
   filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
   arrange(outc_fct, group_fct) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq3_table_cross %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -3351,7 +3475,25 @@ rq3_table_cross %>%
 Significant ...
 :::
 
-First, within-construct intercept-slope covariances:  
+Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_summary %>% 
+  filter(term=="css") %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
+  knitr::kable(digits = 3)
+```
+
+Within-construct intercept-slope covariances:  
 
 ```{r}
 #| echo: true
@@ -3364,7 +3506,8 @@ First, within-construct intercept-slope covariances:
 rq3_table_cis <- rq3_summary %>% 
   filter(term %in% c("cisa", "cisw")) %>% 
   arrange(outc_fct, group_fct) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq3_table_cis %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -3390,7 +3533,8 @@ Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)
 rq3_table_v <- rq3_summary %>% 
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
 
 rq3_table_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -3416,7 +3560,8 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 rq3_table_b <- rq3_summary %>% 
   filter(stringr::str_starts(term, "bi") | stringr::str_starts(term, "bs")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value)
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
 
 rq3_table_b %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -3432,8 +3577,47 @@ Significant ...
 
 ### Summary plot
 
-Plot for main manuscript: focusing on confirmatory analyses  
+We're plotting the standardized effects (i.e., slope-slope correlations).  
 
+Create plots for manuscript: start with extracting the parameters  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Extract standardized slope-slope correlation and CI
+extract_rq3_css_std <- function(fit_obj, name_obj) {
+  name_outc <- name_obj %>% 
+    stringr::str_remove("fit_rq3_") %>% 
+    stringr::str_remove("_partn_c$|_partn_i$")
+  
+  lavaan::standardizedSolution(fit_obj, ci = TRUE) %>% 
+    filter(label == "css") %>% 
+    mutate(outc = name_outc,
+           est = est.std,
+           ci_lo = ci.lower,
+           ci_hi = ci.upper) %>% 
+    select(outc, est, ci_lo, ci_hi, p_value = pvalue)
+}
+
+# Extract all RQ3 slope-slope correlations
+rq3_plot_css <- bind_rows(lapply(rq3_models, function(x) {
+  extract_rq3_css_std(get(x), x)
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE))
+```
+
+Create and save plot: 
 ```{r}
 #| echo: true
 #| warning: false
@@ -3442,22 +3626,60 @@ Plot for main manuscript: focusing on confirmatory analyses
 #| code-fold: true
 #| code-summary: "Show the code"
 
-# for alternating background greys
+# for alternating background color:
+bg_df_rq3 <- data.frame(
+  ymin = seq(0.5, 4.5, by = 1),
+  ymax = seq(1.5, 5.5, by = 1),
+  fill = rep(c("white", "grey90"), length.out = 5)
+)
+
+# Plot standardized slope-slope correlations
+plot_rq3_css <- ggplot(rq3_plot_css, aes(x = est, 
+                                         y = forcats::fct_rev(domain_fct),
+                                         colour = forcats::fct_rev(pred_fct), 
+                                         shape = forcats::fct_rev(pred_fct))) +
+  geom_rect(data = bg_df_rq3,
+            aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
+            inherit.aes = FALSE,
+            fill = bg_df_rq3$fill,
+            alpha = 0.5) +
+  geom_vline(xintercept = 0, colour = "black") +
+  geom_point(size = 2.5, position = position_dodge(width = 0.6)) +
+  geom_errorbarh(aes(xmin = ci_lo, xmax = ci_hi), 
+                 height = 0.3, position = position_dodge(width = 0.6),
+                 linewidth = 0.3, alpha = 0.85) +
+  scale_colour_manual(values = c("Avoidance" = "#D55E00", "Anxiety" = "#0072B2"),
+                      breaks = c("Avoidance", "Anxiety")) +
+  scale_shape_manual(values = c("Avoidance" = 17, "Anxiety" = 16),
+                     breaks = c("Avoidance", "Anxiety")) +
+  scale_x_continuous(limits = c(-0.60, 0.20), 
+                     breaks = seq(-0.60, 0.20, by = 0.20),
+                     labels = scales::label_number(accuracy = 0.1),
+                     oob = scales::oob_keep) +
+  labs(x = "Slope-slope correlation (95% CI)", 
+       y = NULL, colour = NULL, shape = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3), panel.grid.minor.x = element_blank()) +
+  guides(colour = guide_legend(title = "Attachment variable"),
+         shape = guide_legend(title = "Attachment variable"))
 
 # save as pdf
-# pdf(width = 5, height = 4.5, "figures/effects_summary_rq3.pdf")
-# plot_rq3
-# dev.off()
+pdf(width = 6, height = 4.5, "figures/rq3_plot_css.pdf")
+plot_rq3_css
+dev.off()
 ```
 
 Show plot: 
 ```{r rq3-summary-plot-show}
 #| echo: true
-#| fig-width: 5
+#| fig-width: 6
 #| fig-height: 4.5
 #| cache: false
 
-#plot_rq3
+plot_rq3_css
 ```
 
 ### Full model results
@@ -3674,25 +3896,4588 @@ broom::tidy(get(paste0("fit_rq3_", outcomes$short[10])), conf.int = TRUE, conf.l
 
 # Exploratory analyses
 
-## RQ2: Changes in Attachment Models
+## RQ2: Changes in Attachment Models (intermittently partnered)
 
 From prereg: "For all attachment models, we will also explore whether consistently single people experience differential changes in attachment compared to intermittently partnered individuals."  
 
-Same procedure as above: We 
+We don't need to adjust the template. Same as above, we just use different groups.
 
-## RQ3: Co-Development of Attachment and Life Satisfaction
+### Template loop
+
+Run loop over all 5 X 2 outcomes  
+
+```{r rq2-loop-expl}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# make factor ordering explitic again:
+df_atta_wide_single_partn_i <- df_atta_wide_single_partn_i %>% 
+  mutate(group_fct = factor(group_fct, levels = c("Consistently single people", "Intermittently partnered people"), labels = c("Consistently single", "Intermittently partnered"), ordered = TRUE))
+
+levels(df_atta_wide_single_partn_i$group_fct)
+
+# loop across all attachment outcomes
+for (i in 1:length(outcomes$short)) {
+#for (i in 1:2) {
+  print(paste0("Running outcome: ", outcomes$maj[i]))
+  
+  # Step 1: fill single-group model template for intermittently partnered people
+  print("-> Step 1")
+  model_rq2 <- stringr::str_replace_all(rq2_template, "outcome", outcomes$short[i])
+  fit_rq2_partn_i <- lavaan::growth(model_rq2,
+                                     data = df_atta_wide_partn_i,
+                                     missing = "fiml", verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_i")), fit_rq2_partn_i))
+  saveRDS(fit_rq2_partn_i, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_i.rds"))
+  
+  # Step 2: fill free multigroup model template
+  print("-> Step 2")
+  model_rq2_multi <- stringr::str_replace_all(rq2_template_multi, "outcome", outcomes$short[i])
+  fit_rq2_multi_si <- lavaan::growth(model_rq2_multi,
+                                     data = df_atta_wide_single_partn_i %>% arrange(group_fct),
+                                     group = "group_fct",
+                                     missing = "fiml", verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_si")), fit_rq2_multi_si))
+  saveRDS(fit_rq2_multi_si, file = paste0("models/fit_rq2_mg_", outcomes$short[i], "_si.rds"))
+  
+  # Step 3: fill constrained multigroup model template
+  print("-> Step 3")
+  model_rq2_multi_constr <- stringr::str_replace_all(rq2_template_multi_constr, "outcome", outcomes$short[i])
+  fit_rq2_multi_si_constr <- lavaan::growth(model_rq2_multi_constr,
+                                            data = df_atta_wide_single_partn_i %>% arrange(group_fct),
+                                            group = "group_fct",
+                                            missing = "fiml", verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_si_constr")), fit_rq2_multi_si_constr))
+  saveRDS(fit_rq2_multi_si_constr, file = paste0("models/fit_rq2_mg_", outcomes$short[i], "_si_constr.rds"))
+  
+  # Step 4: likelihood ratio test: free vs constrained slopes
+  print("-> Step 4")
+  lrt_si <- anova(fit_rq2_multi_si, fit_rq2_multi_si_constr)
+  eval(call("<-", as.name(paste0("lrt_rq2_mg_", outcomes$short[i], "_si")), lrt_si))
+}
+```
+Create summary table of all effects of interest:  
+
+First, parameter extraction  
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+### single-group lavaan models:
+# custom function for parameter extraction
+extract_lav_rq2_partn_i <- function(fit_obj) {
+  name_obj <- as.character(substitute(fit_obj))
+  name_outc <- name_obj %>% 
+    str_remove("fit_rq2_") %>% 
+    str_remove("_partn_i$")
+  group_lab <- ifelse(str_detect(name_obj, "partn_i$"),
+                      "Intermittently partnered",
+                      "Consistently single")
+  # use tidy() for extraction
+  broom::tidy(fit_obj, conf.int = TRUE, conf.level = 0.95) %>% 
+    filter(label %in% c("a0", "a1", "cis", "bi", "bs", "vi", "vs")) %>% 
+    mutate(outc = name_outc,
+           group_fct = factor(group_lab, 
+                            levels = c("Consistently single", "Consistently partnered", 
+                                       "Intermittently partnered"), 
+                            labels = c("Consistently single", "Consistently partnered", 
+                                       "Intermittently partnered"), ordered = TRUE)) %>% 
+    select(outc, group_fct, term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high,
+           z_value = statistic, p_value = p.value, est_std = std.all)
+}
+
+# bind all model outputs together
+rq2_summary_partn_i <- bind_rows(
+  extract_lav_rq2_partn_i(fit_rq2_avoi_glo_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_avoi_rom_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_avoi_fri_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_avoi_mot_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_avoi_fat_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_anxi_glo_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_anxi_rom_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_anxi_fri_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_anxi_mot_partn_i),
+  extract_lav_rq2_partn_i(fit_rq2_anxi_fat_partn_i)
+)
+
+# Add labels
+rq2_summary_partn_i <- rq2_summary_partn_i %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))#
+
+### multi-group lavaan models
+# custom function for parameter extraction 
+extract_lav_rq2_mg_partn_i <- function(fit_obj, lrt_obj) {
+  name_obj <- as.character(substitute(fit_obj))
+  name_outc <- str_remove(name_obj, "fit_rq2_mg_") %>% 
+    str_remove("_si")
+  
+  # extract LRT information
+  lrt_tab <- as.data.frame(lrt_obj)
+  lrt_chi <- lrt_tab$`Chisq diff`[2]
+  lrt_df <- lrt_tab$`Df diff`[2]
+  lrt_p <- lrt_tab$`Pr(>Chisq)`[2]
+  
+  # extract model parameters
+  broom::tidy(fit_obj, conf.int = TRUE, conf.level = 0.95) %>% 
+    filter(label %in% c("a0_s", "a0_p", "a1_s", "a1_p", "cis_s", "cis_p",
+                        "bi_s", "bi_p", "bs_s", "bs_p", "vi_s", "vi_p", "vs_s", "vs_p")) %>% 
+    mutate(outc = name_outc,
+           group_fct = case_when(str_detect(label, "_s$") ~ "Consistently single",
+                                 str_detect(label, "_p$") ~ "Intermittently partnered", # p = means Intermittently here!
+                                 TRUE ~ NA_character_),
+      group_fct = factor(group_fct, levels = c("Consistently single", "Consistently partnered",
+                                    "Intermittently partnered"), ordered = TRUE),
+      lrt_chi = ifelse(str_detect(label, "^a1_"), lrt_chi, NA),
+      lrt_df = ifelse(str_detect(label, "^a1_"), lrt_df, NA),
+      lrt_p = ifelse(str_detect(label, "^a1_"), lrt_p, NA)) %>% 
+    select(outc, group_fct, term = label,
+           est = estimate, ci_lo = conf.low, ci_hi = conf.high,
+           z_value = statistic, p_value = p.value, est_std = std.all,
+           lrt_chi, lrt_df, lrt_p)
+}
+
+# bind all model outputs together
+rq2_summary_mg_partn_i <- bind_rows(
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_avoi_glo_si, lrt_rq2_mg_avoi_glo_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_avoi_rom_si, lrt_rq2_mg_avoi_rom_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_avoi_fri_si, lrt_rq2_mg_avoi_fri_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_avoi_mot_si, lrt_rq2_mg_avoi_mot_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_avoi_fat_si, lrt_rq2_mg_avoi_fat_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_anxi_glo_si, lrt_rq2_mg_anxi_glo_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_anxi_rom_si, lrt_rq2_mg_anxi_rom_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_anxi_fri_si, lrt_rq2_mg_anxi_fri_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_anxi_mot_si, lrt_rq2_mg_anxi_mot_si),
+  extract_lav_rq2_mg_partn_i(fit_rq2_mg_anxi_fat_si, lrt_rq2_mg_anxi_fat_si)
+)
+
+# Add labels
+rq2_summary_mg_partn_i <- rq2_summary_mg_partn_i %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
+```
+
+### Model fit
+
+Fit statistics: single-group models
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# model fit statistics: single-group models
+rq2_fit_partn_i <- outcomes$short %>% 
+  purrr::map_dfr(function(x) {
+    bind_rows(
+      broom::glance(get(paste0("fit_rq2_", x, "_partn_i"))) %>% 
+        mutate(outc = x, group_fct = "Intermittently partnered"))
+  }) %>% 
+  select(outc, group_fct, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
+  mutate(
+    outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE),
+    group_fct = factor(group_fct,
+                       levels = c("Intermittently partnered"),
+                       ordered = TRUE))
+
+rq2_fit_partn_i %>% select(-outc) %>% 
+  select(outc_fct, group_fct, everything()) %>% 
+  kable(digits = 3)
+```
+
+Fit statistics: multi-group models (of consistently single & consistently partnered)
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# model fit statistics: multi-group models
+rq2_fit_mg_partn_i <- outcomes$short %>% 
+  purrr::map_dfr(function(x) {
+    broom::glance(get(paste0("fit_rq2_mg_", x, "_si"))) %>% 
+      mutate(outc = x)
+  }) %>% 
+  select(outc, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
+
+rq2_fit_mg_partn_i %>% 
+  select(-outc) %>% 
+  select(outc_fct, everything()) %>% 
+  kable(digits = 3)
+```
+
+### Model diagnostics
+
+- Did the model converge?  
+- Did lavaan's internal check pass?  
+- Are there inadmissible negative variances?  
+
+#### Single-group models
+
+```{r}
+#| echo: true
+#| warning: true
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# diagnostics for the single-group RQ2 models (interm. partnered)
+rq2_models_partn_i <- c("fit_rq2_avoi_glo_partn_i", "fit_rq2_avoi_rom_partn_i",
+                "fit_rq2_avoi_fri_partn_i", "fit_rq2_avoi_mot_partn_i",
+                "fit_rq2_avoi_fat_partn_i", "fit_rq2_anxi_glo_partn_i",
+                "fit_rq2_anxi_rom_partn_i", "fit_rq2_anxi_fri_partn_i",
+                "fit_rq2_anxi_mot_partn_i", "fit_rq2_anxi_fat_partn_i")
+
+rq2_diagnostics_partn_i <- purrr::map_dfr(rq2_models_partn_i, function(x) {
+  fit <- get(x)
+  tibble(
+    model = x,
+    converged = lavInspect(fit, "converged"),
+    post_check = lavInspect(fit, "post.check"),
+    neg_variances = any(parameterEstimates(fit)$op == "~~" &
+                          parameterEstimates(fit)$lhs == parameterEstimates(fit)$rhs &
+                          parameterEstimates(fit)$est < 0))
+})
+
+rq2_diagnostics_partn_i %>% kable(digits = 3)
+```
+
+#### Multi-group models
+
+```{r}
+#| echo: true
+#| warning: true
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_mg_models_partn_i <- c("fit_rq2_mg_avoi_glo_si", "fit_rq2_mg_avoi_rom_si",
+                   "fit_rq2_mg_avoi_fri_si", "fit_rq2_mg_avoi_mot_si",
+                   "fit_rq2_mg_avoi_fat_si", "fit_rq2_mg_anxi_glo_si",
+                   "fit_rq2_mg_anxi_rom_si", "fit_rq2_mg_anxi_fri_si",
+                   "fit_rq2_mg_anxi_mot_si", "fit_rq2_mg_anxi_fat_si")
+
+rq2_mg_diagnostics_partn_i <- purrr::map_dfr(rq2_mg_models_partn_i, function(x) {
+  fit <- get(x)
+  pe <- parameterEstimates(fit)
+  tibble(
+    model = x,
+    converged = lavInspect(fit, "converged"),
+    post_check = lavInspect(fit, "post.check"),
+    neg_variances = any(pe$op == "~~" &
+                          pe$lhs == pe$rhs &
+                          pe$est < 0))
+})
+
+rq2_mg_diagnostics_partn_i %>% kable(digits = 3)
+```
+
+### Summary tables
+
+#### Single-group models
+
+Not so interesting by themselves but I include the single-group results here, too. See below for comparison with singles group.  
+
+Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1):  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_partn_i_a <- rq2_summary_partn_i %>% 
+  filter(term=="a0" | term=="a1") %>%
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_partn_i_a %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq2_table_partn_i_a))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Very similar .
+:::
+
+Latent intercept-slope covariance: (cis) 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_summary_partn_i %>% 
+  filter(term=="cis") %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
+  knitr::kable(digits = 3)
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Variances of the latent intercept and slope factors: (vi) & (vs)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_partn_i_v <- rq2_summary_partn_i %>% 
+  filter(stringr::str_starts(term, "v")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+
+rq2_table_partn_i_v %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq2_table_partn_i_v))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Age moderation of latent intercept and slope factors: (bi) & (bs)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_partn_i_b <- rq2_summary_partn_i %>% 
+  filter(term=="bi" | term=="bs") %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_partn_i_b %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq2_table_partn_i_b))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+#### Multi-group models
+
+Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_partn_i_a <- rq2_summary_mg_partn_i %>% 
+  filter(stringr::str_starts(term, "a")) %>%
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, lrt_chi, lrt_p)
+
+rq2_table_mg_partn_i_a %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_mg_partn_i_a))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Very similar .
+:::
+
+Latent intercept-slope covariance: (cis)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_partn_i_cis <- rq2_summary_mg_partn_i %>% 
+  filter(stringr::str_starts(term, "cis")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_mg_partn_i_cis %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq2_table_mg_partn_i_cis))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Variances of the latent intercept and slope factors: (vi) & (vs)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_partn_i_v <- rq2_summary_mg_partn_i %>% 
+  filter(stringr::str_starts(term, "v")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+
+rq2_table_mg_partn_i_v %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_mg_partn_i_v))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Age moderation of latent intercept and slope factors: (bi) & (bs)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_partn_i_b <- rq2_summary_mg_partn_i %>% 
+  filter(stringr::str_starts(term, "b")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_mg_partn_i_b %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_mg_partn_i_b))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+### Summary plot
+
+Create plots for manuscript: start with extracting the parameters
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Custom function to extract model-implied trajectories from lavaan defined parameters
+extract_rq2_plot_traject_partn_i <- function(fit, outcome_label) {
+  parameterEstimates(fit, ci = TRUE) %>%
+    as_tibble() %>%
+    filter(op == ":=") %>%
+    mutate(group = case_when(str_detect(lhs, "_s$") ~ "Consistently single",
+                             str_detect(lhs, "_p$") ~ "Intermittently partnered"),
+           month = as.numeric(str_extract(lhs, "(?<=t)\\d+")),
+           time_years = month / 12,
+           outcome = outcome_label) %>%
+    select(outcome, group, month, time_years, estimate = est, ci_low = ci.lower, ci_high = ci.upper)
+}
+
+# Extract trajectories from all multi-group RQ2 models
+plot_traject_list_rq2_partn_i <- list()
+for (i in 1:length(outcomes$short)) {
+  fit <- readRDS(paste0("models/fit_rq2_mg_", outcomes$short[i], "_si.rds"))
+  plot_traject_list_rq2_partn_i[[i]] <- extract_rq2_plot_traject_partn_i(fit, outcomes$maj[i])
+}
+plot_traject_df_rq2_partn_i <- bind_rows(plot_traject_list_rq2_partn_i)
+
+# Check extracted plotting dataframe
+head(plot_traject_df_rq2_partn_i)
+table(plot_traject_df_rq2_partn_i$outcome, plot_traject_df_rq2_partn_i$group)
+
+# create factor variables:
+plot_traject_df_rq2_partn_i <- plot_traject_df_rq2_partn_i %>%
+  mutate(outc_fct = factor(outcome, levels = outcomes$maj, labels = outcomes$maj, ordered = TRUE),
+         group_fct = factor(group, levels = c("Consistently single", "Intermittently partnered"), ordered = TRUE))
+
+# a bit tricky: handling variable y-axis ranges...
+# Define common y-axis width across facets
+y_range_rq2 <- 1.7
+# Calculate facet-specific y-axis limits with equal zoom
+plot_traject_limits_rq2_partn_i <- plot_traject_df_rq2_partn_i %>%
+  group_by(outc_fct) %>%
+  summarise(y_mid = mean(range(c(ci_low, ci_high)))) %>%
+  mutate(y_lower = y_mid - y_range_rq2 / 2,
+         y_upper = y_mid + y_range_rq2 / 2)
+# Create facet-specific y-axis scales with half-point breaks
+y_scales_rq2_partn_i <- lapply(1:nrow(plot_traject_limits_rq2_partn_i), function(i) {
+  scale_y_continuous(limits = c(plot_traject_limits_rq2_partn_i$y_lower[i],
+                                plot_traject_limits_rq2_partn_i$y_upper[i]),
+                     breaks = seq(floor(plot_traject_limits_rq2_partn_i$y_lower[i] * 2) / 2,
+                                  ceiling(plot_traject_limits_rq2_partn_i$y_upper[i] * 2) / 2,
+                                  by = 0.5),
+                     labels = scales::label_number(accuracy = 0.1))
+})
+
+# Create significance labels from LRT p-values
+rq2_sig_labels_partn_i <- rq2_table_mg_partn_i_a %>%
+  filter(term == "a1_s") %>%
+  mutate(sig = case_when(lrt_p < .001 ~ "***",
+                         lrt_p < .01 ~ "**",
+                         lrt_p < .05 ~ "*",
+                         TRUE ~ "")) %>%
+  select(outc_fct, sig) %>% 
+  mutate(outc_label = ifelse(sig == "", as.character(outc_fct), paste0(as.character(outc_fct), " (", sig, ")")))
+# Add labelled outcome factor for plotting
+plot_traject_df_rq2_partn_i <- plot_traject_df_rq2_partn_i %>%
+  left_join(rq2_sig_labels_partn_i %>% select(outc_fct, outc_label), by = "outc_fct") %>%
+  mutate(outc_fct_label = factor(outc_label, levels = unique(outc_label))) %>% 
+  mutate(outc_fct_label = factor(outc_fct_label, levels = unique(outc_fct_label), ordered = TRUE))
+```
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Define custom group colours and linetypes
+group_colors <- c("Consistently single" = "#008837", "Intermittently partnered" = "#6A3D9A")
+group_linetypes <- c("Consistently single" = "solid", "Intermittently partnered" = "dotdash")
+
+# Plot RQ2 model-implied trajectories with 95% confidence bands
+plot_rq2_traject_partn_i <- ggplot(plot_traject_df_rq2_partn_i, aes(x = time_years, y = estimate, 
+                                                     colour = group_fct, fill = group_fct,
+                                                     linetype = group_fct)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = .20, colour = NA) +
+  geom_line(linewidth = 1) +
+  scale_colour_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_linetype_manual(values = group_linetypes) +
+  facet_wrap(~outc_fct_label, ncol = 2, nrow = 5, scales = "free_y", dir = "v") +
+  ggh4x::facetted_pos_scales(y = y_scales_rq2) +
+  labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)", 
+       colour = NULL, fill = NULL, linetype = NULL) +
+  guides(colour = guide_legend(title = "Group"),
+         fill = guide_legend(title = "Group"),
+         linetype = guide_legend(title = "Group")) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 10),
+        strip.background = element_rect(fill = "grey95"),
+        legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_line(color = "grey80", linewidth = 0.3),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank())
+
+# save as pdf
+pdf(width = 6.5, height = 7.5, "figures/rq2_traject_expl.pdf")
+plot_rq2_traject_partn_i
+dev.off()
+```
+
+Show plot: 
+```{r rq2-summary-plot-expl-show}
+#| echo: true
+#| fig-width: 6.5
+#| fig-height: 7.5
+#| cache: false
+
+plot_rq2_traject_partn_i
+```
+
+### Full model results
+
+#### Single-group models
+
+##### `r outcomes$maj[1]`
+
+Full model results for `r outcomes$min[1]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[1], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[2]`
+
+Full model results for `r outcomes$min[2]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[2], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[3]`
+
+Full model results for `r outcomes$min[3]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[3], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[4]`
+
+Full model results for `r outcomes$min[4]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[4], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[5]`
+
+Full model results for `r outcomes$min[5]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[5], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[6]`
+
+Full model results for `r outcomes$min[6]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[6], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[7]`
+
+Full model results for `r outcomes$min[7]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[7], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[8]`
+
+Full model results for `r outcomes$min[8]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[8], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[9]`
+
+Full model results for `r outcomes$min[9]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[9], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[10]`
+
+Full model results for `r outcomes$min[10]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[10], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+#### Multi-group models
+
+##### `r outcomes$maj[1]`
+
+Full model results for `r outcomes$min[1]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[1], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[2]`
+
+Full model results for `r outcomes$min[2]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[2], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[3]`
+
+Full model results for `r outcomes$min[3]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[3], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[4]`
+
+Full model results for `r outcomes$min[4]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[4], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[5]`
+
+Full model results for `r outcomes$min[5]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[5], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[6]`
+
+Full model results for `r outcomes$min[6]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[6], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[7]`
+
+Full model results for `r outcomes$min[7]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[7], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[8]`
+
+Full model results for `r outcomes$min[8]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[8], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[9]`
+
+Full model results for `r outcomes$min[9]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[9], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[10]`
+
+Full model results for `r outcomes$min[10]` (comparing consistently single & intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[10], "_si")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+## RQ3: Co-Development of Attachment and Life Satisfaction (consistently & intermittently partnered)
 
 From prereg: "In addition, for all attachment models, we will explore co-development between attachment and life satisfaction in (1) consistently partnered individuals and (2) intermittently partnered individuals."
+
+We don't need to adjust the template. Same as above, we just use different groups.
+
+### Template loop
+
+Run loop over all 5 X 2 outcomes  
+
+(Here, I suppress lavaan warnings in the html output, but they are very similar to the ones shown above for the example model. Below, I go into model diagnostics more systematically.)  
+
+```{r rq3-loop-expl}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# loop across all attachment outcomes
+for (i in 1:length(outcomes$short)) {
+  print(paste0("Running outcome: ", outcomes$maj[i]))
+
+  # Fill bivariate LGCM template
+  model_rq3 <- stringr::str_replace_all(rq3_template, "outcome", outcomes$short[i])
+
+  # Fit model in consistently partnered people
+  fit_rq3_partn_c <- lavaan::growth(model_rq3,
+                                    data = df_atta_wide_partn_c,
+                                    missing = "fiml",
+                                    verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_partn_c")), fit_rq3_partn_c))
+  saveRDS(fit_rq3_partn_c, file = paste0("models/fit_rq3_", outcomes$short[i], "_partn_c.rds"))
+
+  # Fit model in intermittently partnered people
+  fit_rq3_partn_i <- lavaan::growth(model_rq3,
+                                    data = df_atta_wide_partn_i,
+                                    missing = "fiml",
+                                    verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_partn_i")), fit_rq3_partn_i))
+  saveRDS(fit_rq3_partn_i, file = paste0("models/fit_rq3_", outcomes$short[i], "_partn_i.rds"))
+}
+```
 
 ::: {.callout-note appearance="minimal"}
 The p-value is not significant ...   
 :::
 
+Create summary table of all effects of interest: parameter extraction  
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# custom function for parameter extraction from bivariate LGCMs
+# same as above
+
+# bind all model outputs together -> Consistently partnered
+rq3_summary_partn_c <- bind_rows(
+  extract_lav_rq3(fit_rq3_avoi_glo_partn_c),
+  extract_lav_rq3(fit_rq3_avoi_rom_partn_c),
+  extract_lav_rq3(fit_rq3_avoi_fri_partn_c),
+  extract_lav_rq3(fit_rq3_avoi_mot_partn_c),
+  extract_lav_rq3(fit_rq3_avoi_fat_partn_c),
+  extract_lav_rq3(fit_rq3_anxi_glo_partn_c),
+  extract_lav_rq3(fit_rq3_anxi_rom_partn_c),
+  extract_lav_rq3(fit_rq3_anxi_fri_partn_c),
+  extract_lav_rq3(fit_rq3_anxi_mot_partn_c),
+  extract_lav_rq3(fit_rq3_anxi_fat_partn_c)
+)
+# Add labels
+rq3_summary_partn_c <- rq3_summary_partn_c %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short,
+                           labels = outcomes$maj, ordered = TRUE))
+
+# bind all model outputs together -> Intermittently partnered
+rq3_summary_partn_i <- bind_rows(
+  extract_lav_rq3(fit_rq3_avoi_glo_partn_i),
+  extract_lav_rq3(fit_rq3_avoi_rom_partn_i),
+  extract_lav_rq3(fit_rq3_avoi_fri_partn_i),
+  extract_lav_rq3(fit_rq3_avoi_mot_partn_i),
+  extract_lav_rq3(fit_rq3_avoi_fat_partn_i),
+  extract_lav_rq3(fit_rq3_anxi_glo_partn_i),
+  extract_lav_rq3(fit_rq3_anxi_rom_partn_i),
+  extract_lav_rq3(fit_rq3_anxi_fri_partn_i),
+  extract_lav_rq3(fit_rq3_anxi_mot_partn_i),
+  extract_lav_rq3(fit_rq3_anxi_fat_partn_i)
+)
+# Add labels
+rq3_summary_partn_i <- rq3_summary_partn_i %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short,
+                           labels = outcomes$maj, ordered = TRUE))
+```
+
+### Model fit
+
+Fit statistics: consistently partnered
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# model fit statistics: single-group models -> consistently partnered
+rq3_fit_partn_c <- outcomes$short %>% 
+  purrr::map_dfr(function(x) {
+    bind_rows(
+      broom::glance(get(paste0("fit_rq3_", x, "_partn_c"))) %>% 
+        mutate(outc = x, group_fct = "Consistently partnered"))
+  }) %>% 
+  select(outc, group_fct, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
+  mutate(
+    outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE),
+    group_fct = factor(group_fct,
+                       levels = c("Consistently single",
+                                  "Consistently partnered",
+                                  "Intermittently partnered"),
+                       ordered = TRUE))
+
+rq3_fit_partn_c %>% select(-outc) %>% 
+  select(outc_fct, group_fct, everything()) %>% 
+  kable(digits = 3)
+```
+
+Fit statistics: intermittently partnered
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# model fit statistics: single-group models
+rq3_fit_partn_i <- outcomes$short %>% 
+  purrr::map_dfr(function(x) {
+    bind_rows(
+      broom::glance(get(paste0("fit_rq3_", x, "_partn_i"))) %>% 
+        mutate(outc = x, group_fct = "Intermittently partnered"))
+  }) %>% 
+  select(outc, group_fct, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
+  mutate(
+    outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE),
+    group_fct = factor(group_fct,
+                       levels = c("Consistently single",
+                                  "Consistently partnered",
+                                  "Intermittently partnered"),
+                       ordered = TRUE))
+
+rq3_fit_partn_i %>% select(-outc) %>% 
+  select(outc_fct, group_fct, everything()) %>% 
+  kable(digits = 3)
+```
+
+::: {.callout-note appearance="minimal"}
+Pretty similar    
+:::
+
+### Model diagnostics
+
+- Did the model converge?  
+- Did lavaan's internal check pass?  
+- Are there inadmissible negative variances?  
+
+Diagnostics: consistently partnered  
+```{r}
+#| echo: true
+#| warning: true
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# diagnostics for all single-group RQ3 models
+rq3_models_partn_c <- c("fit_rq3_avoi_glo_partn_c", "fit_rq3_avoi_rom_partn_c",
+                "fit_rq3_avoi_fri_partn_c", "fit_rq3_avoi_mot_partn_c",
+                "fit_rq3_avoi_fat_partn_c", "fit_rq3_anxi_glo_partn_c",
+                "fit_rq3_anxi_rom_partn_c", "fit_rq3_anxi_fri_partn_c",
+                "fit_rq3_anxi_mot_partn_c", "fit_rq3_anxi_fat_partn_c")
+
+rq3_diagnostics_partn_c <- purrr::map_dfr(rq3_models_partn_c, function(x) {
+  fit <- get(x)
+  tibble(
+    model = x,
+    converged = lavInspect(fit, "converged"),
+    post_check = lavInspect(fit, "post.check"),
+    neg_variances = any(parameterEstimates(fit)$op == "~~" &
+                          parameterEstimates(fit)$lhs == parameterEstimates(fit)$rhs &
+                          parameterEstimates(fit)$est < 0))
+})
+
+rq3_diagnostics_partn_c %>% kable(digits = 3)
+```
+
+Diagnostics: intermittently partnered
+```{r}
+#| echo: true
+#| warning: true
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# diagnostics for all single-group RQ3 models
+rq3_models_partn_i <- c("fit_rq3_avoi_glo_partn_i", "fit_rq3_avoi_rom_partn_i",
+                        "fit_rq3_avoi_fri_partn_i", "fit_rq3_avoi_mot_partn_i",
+                        "fit_rq3_avoi_fat_partn_i", "fit_rq3_anxi_glo_partn_i",
+                        "fit_rq3_anxi_rom_partn_i", "fit_rq3_anxi_fri_partn_i",
+                        "fit_rq3_anxi_mot_partn_i", "fit_rq3_anxi_fat_partn_i")
+
+rq3_diagnostics_partn_i <- purrr::map_dfr(rq3_models_partn_i, function(x) {
+  fit <- get(x)
+  tibble(
+    model = x,
+    converged = lavInspect(fit, "converged"),
+    post_check = lavInspect(fit, "post.check"),
+    neg_variances = any(parameterEstimates(fit)$op == "~~" &
+                          parameterEstimates(fit)$lhs == parameterEstimates(fit)$rhs &
+                          parameterEstimates(fit)$est < 0))
+})
+
+rq3_diagnostics_partn_i %>% kable(digits = 3)
+```
+
+### Summary tables
+
+#### Consistently partnered 
+
+Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alpha1" (a1 = attach, w1 = life sat): 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_c_a <- rq3_summary_partn_c %>% 
+  filter(term=="a0" | term=="a1" | term=="w0" | term=="w1") %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_c_a %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_c_a))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Very similar .
+:::
+
+Latent intercept / slope variances & covariance - general terminology:  
+- (a) = attachment  
+- (w) = well-being (life satisf.)  
+- (c) = covariance  
+- (v) = variance  
+- (i) = latent intercept  
+- (s) = latent slope   
+
+Cross-construct covariances (which are most relevant for the hypotheses):  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_c_cross <- rq3_summary_partn_c %>% 
+  filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_c_cross %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_c_cross))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_summary_partn_c %>% 
+  filter(term=="css") %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
+  knitr::kable(digits = 3)
+```
+
+Within-construct intercept-slope covariances:  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_c_cis <- rq3_summary_partn_c %>% 
+  filter(term %in% c("cisa", "cisw")) %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_c_cis %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq3_table_partn_c_cis))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_c_v <- rq3_summary_partn_c %>% 
+  filter(stringr::str_starts(term, "v")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+
+rq3_table_partn_c_v %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_c_v))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Age moderation of latent intercept and slope factors: (bi) & (bs)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_c_b <- rq3_summary_partn_c %>% 
+  filter(stringr::str_starts(term, "bi") | stringr::str_starts(term, "bs")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_c_b %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_c_b))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+#### Intermittently partnered 
+
+Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alpha1" (a1 = attach, w1 = life sat): 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_i_a <- rq3_summary_partn_i %>% 
+  filter(term=="a0" | term=="a1" | term=="w0" | term=="w1") %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_i_a %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_i_a))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Very similar .
+:::
+
+Latent intercept / slope variances & covariance - general terminology:  
+- (a) = attachment  
+- (w) = well-being (life satisf.)  
+- (c) = covariance  
+- (v) = variance  
+- (i) = latent intercept  
+- (s) = latent slope   
+
+Cross-construct covariances (which are most relevant for the hypotheses):  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_i_cross <- rq3_summary_partn_i %>% 
+  filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_i_cross %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_i_cross))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_summary_partn_i %>% 
+  filter(term=="css") %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
+  knitr::kable(digits = 3)
+```
+
+Within-construct intercept-slope covariances:  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_i_cis <- rq3_summary_partn_i %>% 
+  filter(term %in% c("cisa", "cisw")) %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_i_cis %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq3_table_partn_i_cis))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_i_v <- rq3_summary_partn_i %>% 
+  filter(stringr::str_starts(term, "v")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+
+rq3_table_partn_i_v %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_i_v))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Age moderation of latent intercept and slope factors: (bi) & (bs)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_partn_i_b <- rq3_summary_partn_i %>% 
+  filter(stringr::str_starts(term, "bi") | stringr::str_starts(term, "bs")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_partn_i_b %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_partn_i_b))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+### Summary plot
+
+We're plotting the standardized effects (i.e., slope-slope correlations).  
+
+Create plots for manuscript: start with extracting the parameters  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Extract standardized slope-slope correlation and CI
+# same function as above
+
+# Extract all RQ3 slope-slope correlations -> Consistently partnered
+rq3_plot_css_partn_c <- bind_rows(lapply(rq3_models_partn_c, function(x) {
+  extract_rq3_css_std(get(x), x)
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE))
+
+# Extract all RQ3 slope-slope correlations -> Intermittently partnered
+rq3_plot_css_partn_i <- bind_rows(lapply(rq3_models_partn_i, function(x) {
+  extract_rq3_css_std(get(x), x)
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE))
+```
+
+#### Consistently partnered
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Plot standardized slope-slope correlations -> Consistently partnered
+plot_rq3_css_partn_c <- ggplot(rq3_plot_css_partn_c, aes(x = est, 
+                                         y = forcats::fct_rev(domain_fct),
+                                         colour = forcats::fct_rev(pred_fct), 
+                                         shape = forcats::fct_rev(pred_fct))) +
+  geom_rect(data = bg_df_rq3,
+            aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
+            inherit.aes = FALSE,
+            fill = bg_df_rq3$fill,
+            alpha = 0.5) +
+  geom_vline(xintercept = 0, colour = "black") +
+  geom_point(size = 2.5, position = position_dodge(width = 0.6)) +
+  geom_errorbarh(aes(xmin = ci_lo, xmax = ci_hi), 
+                 height = 0.3, position = position_dodge(width = 0.6),
+                 linewidth = 0.3, alpha = 0.85) +
+  scale_colour_manual(values = c("Avoidance" = "#D55E00", "Anxiety" = "#0072B2"),
+                      breaks = c("Avoidance", "Anxiety")) +
+  scale_shape_manual(values = c("Avoidance" = 17, "Anxiety" = 16),
+                     breaks = c("Avoidance", "Anxiety")) +
+  scale_x_continuous(limits = c(-0.60, 0.20), 
+                     breaks = seq(-0.60, 0.20, by = 0.20),
+                     labels = scales::label_number(accuracy = 0.1),
+                     oob = scales::oob_keep) +
+  labs(x = "Slope-slope correlation (95% CI)", 
+       y = NULL, colour = NULL, shape = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3), panel.grid.minor.x = element_blank()) +
+  guides(colour = guide_legend(title = "Attachment variable"),
+         shape = guide_legend(title = "Attachment variable"))
+
+# save as pdf
+pdf(width = 6, height = 4.5, "figures/rq3_plot_css_partn_c.pdf")
+plot_rq3_css_partn_c
+dev.off()
+```
+
+Show plot: 
+```{r rq3-summary-plot-partn-c-show}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4.5
+#| cache: false
+
+plot_rq3_css_partn_c
+```
+
+#### Intermittently partnered
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Plot standardized slope-slope correlations -> Intermittently partnered
+plot_rq3_css_partn_i <- ggplot(rq3_plot_css_partn_i, aes(x = est, 
+                                         y = forcats::fct_rev(domain_fct),
+                                         colour = forcats::fct_rev(pred_fct), 
+                                         shape = forcats::fct_rev(pred_fct))) +
+  geom_rect(data = bg_df_rq3,
+            aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
+            inherit.aes = FALSE,
+            fill = bg_df_rq3$fill,
+            alpha = 0.5) +
+  geom_vline(xintercept = 0, colour = "black") +
+  geom_point(size = 2.5, position = position_dodge(width = 0.6)) +
+  geom_errorbarh(aes(xmin = ci_lo, xmax = ci_hi), 
+                 height = 0.3, position = position_dodge(width = 0.6),
+                 linewidth = 0.3, alpha = 0.85) +
+  scale_colour_manual(values = c("Avoidance" = "#D55E00", "Anxiety" = "#0072B2"),
+                      breaks = c("Avoidance", "Anxiety")) +
+  scale_shape_manual(values = c("Avoidance" = 17, "Anxiety" = 16),
+                     breaks = c("Avoidance", "Anxiety")) +
+  scale_x_continuous(limits = c(-0.60, 0.20), 
+                     breaks = seq(-0.60, 0.20, by = 0.20),
+                     labels = scales::label_number(accuracy = 0.1),
+                     oob = scales::oob_keep) +
+  labs(x = "Slope-slope correlation (95% CI)", 
+       y = NULL, colour = NULL, shape = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3), panel.grid.minor.x = element_blank()) +
+  guides(colour = guide_legend(title = "Attachment variable"),
+         shape = guide_legend(title = "Attachment variable"))
+
+# save as pdf
+pdf(width = 6, height = 4.5, "figures/rq3_plot_css_partn_i.pdf")
+plot_rq3_css_partn_i
+dev.off()
+```
+
+Show plot: 
+```{r rq3-summary-plot-partn-i-show}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4.5
+#| cache: false
+
+plot_rq3_css_partn_i
+```
+
+#### All three groups together!
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# joint df of all groups
+rq3_plot_css_all <- bind_rows(
+  rq3_plot_css %>% mutate(group = "Consistently single"),
+  rq3_plot_css_partn_c %>% mutate(group = "Consistently partnered"),
+  rq3_plot_css_partn_i %>% mutate(group = "Intermittently partnered")
+) %>% 
+  mutate(group_fct = factor(group,
+                            levels = c("Consistently single", "Consistently partnered", "Intermittently partnered"),
+                            ordered = TRUE)) %>% select(-group)
+  
+# Define custom group colours
+group_colors <- c("Consistently single" = "#008837", "Consistently partnered" = "#A23E48", 
+                  "Intermittently partnered" = "#6A3D9A")
+
+# Plot standardized slope-slope correlations across groups
+plot_rq3_css_all <- ggplot(rq3_plot_css_all, aes(x = est, y = forcats::fct_rev(group_fct), 
+                                                 colour = forcats::fct_rev(group_fct), shape = forcats::fct_rev(group_fct))) +
+  geom_vline(xintercept = 0, colour = "black") +
+  geom_point(size = 2.5) +
+  geom_errorbarh(aes(xmin = ci_lo, xmax = ci_hi), height = 0.3, linewidth = 0.3, alpha = 0.85) +
+  scale_colour_manual(values = group_colors, breaks = c("Consistently single", "Consistently partnered", "Intermittently partnered")) +
+  scale_shape_manual(values = c("Consistently single" = 16, "Consistently partnered" = 17, "Intermittently partnered" = 15), breaks = c("Consistently single", "Consistently partnered", "Intermittently partnered")) +
+  scale_x_continuous(limits = c(-0.60, 0.20), breaks = seq(-0.60, 0.20, by = 0.20), labels = scales::label_number(accuracy = 0.1), oob = scales::oob_keep) +
+  facet_wrap(~ outc_fct, ncol = 2, nrow = 5, dir = "v") +
+  labs(x = "Slope-slope correlation (95% CI)", y = NULL, colour = NULL, shape = NULL) +
+  guides(colour = guide_legend(title = "Group", override.aes = list(shape = c(16, 17, 15))), shape = "none") +
+  theme_bw() +
+  theme(strip.text = element_text(size = 10), strip.background = element_rect(fill = "grey95"),
+        legend.position = "bottom", legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3), panel.grid.minor.x = element_blank(),
+        axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+# save as pdf
+pdf(width = 6.5, height = 7.5, "figures/rq3_plot_css_all.pdf")
+plot_rq3_css_all
+dev.off()
+```
+
+Show plot: 
+```{r rq3-summary-plot-all-show}
+#| echo: true
+#| fig-width: 6.5
+#| fig-height: 7.5
+#| cache: false
+
+plot_rq3_css_all
+```
+
+### Full model results
+
+#### Consistently partnered
+
+##### `r outcomes$maj[1]`
+
+Full model results for `r outcomes$min[1]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[1], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[2]`
+
+Full model results for `r outcomes$min[2]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[2], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[3]`
+
+Full model results for `r outcomes$min[3]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[3], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[4]`
+
+Full model results for `r outcomes$min[4]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[4], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[5]`
+
+Full model results for `r outcomes$min[5]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[5], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[6]`
+
+Full model results for `r outcomes$min[6]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[6], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[7]`
+
+Full model results for `r outcomes$min[7]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[7], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[8]`
+
+Full model results for `r outcomes$min[8]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[8], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[9]`
+
+Full model results for `r outcomes$min[9]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[9], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[10]`
+
+Full model results for `r outcomes$min[10]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[10], "_partn_c")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+#### Intermittently partnered
+
+##### `r outcomes$maj[1]`
+
+Full model results for `r outcomes$min[1]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[1], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[2]`
+
+Full model results for `r outcomes$min[2]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[2], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[3]`
+
+Full model results for `r outcomes$min[3]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[3], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[4]`
+
+Full model results for `r outcomes$min[4]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[4], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[5]`
+
+Full model results for `r outcomes$min[5]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[5], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[6]`
+
+Full model results for `r outcomes$min[6]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[6], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[7]`
+
+Full model results for `r outcomes$min[7]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[7], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[8]`
+
+Full model results for `r outcomes$min[8]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[8], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[9]`
+
+Full model results for `r outcomes$min[9]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[9], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[10]`
+
+Full model results for `r outcomes$min[10]` (in the intermittently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[10], "_partn_i")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
 # Robustness checks
 
 ## LGCM re-run as multilevel models
 
+Comparing change in consistently single people vs. consistently partnered people  
+
+A few changes to long df: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+df_atta_mlm <- df_atta %>% 
+  filter(group_fct!="Intermittently partnered people") %>% 
+  filter(time_month_rd %in% c(0:29)) %>% # same restriction as in the SEM -> too much attrition in later waves
+  mutate(single = ifelse(group_fct=="Consistently partnered people", 0, 1))
+# this dummy now contrasts consistently partnered people (= reference group) with consistently single people
+```
+
+### Example model 
+
+Example model first:  
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+fit_rq2_lmer_avoi_glo <- lmerTest::lmer(
+  avoi_glo ~ time_month_rd * single + age_base_z * single + (1 + time_month_rd | pid),
+  data = df_atta_mlm, REML = FALSE)
+
+summary(fit_rq2_lmer_avoi_glo)
+```
+
+### Run loop
+
+Run all outcomes in a loop:
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_lmer_models <- list()
+
+for (i in seq_along(outcomes$short)) {
+  out <- outcomes$short[i]
+  message("Running outcome: ", out)
+  
+  model <- lmerTest::lmer(
+    as.formula(paste0(out, " ~ time_month_rd * single + age_base_z * single + (1 + time_month_rd | pid)")),
+    data = df_atta_mlm,
+    REML = FALSE
+  )
+  
+  rq2_lmer_models[[out]] <- model
+  assign(paste0("fit_rq2_lmer_", out), model)
+  saveRDS(model, file = paste0("models/fit_rq2_lmer_", out, ".rds"))
+}
+```
+
+Extract and combine the parameters of interest
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Satterthwaite-based df and p.value
+rq2_lmer_summary <- purrr::imap_dfr(rq2_lmer_models, ~broom.mixed::tidy(.x, effects = "fixed", conf.int = TRUE) %>%
+  filter(term %in% c("time_month_rd", "single", "time_month_rd:single", "age_base_z", "age_base_z:single")) %>%
+  mutate(outc = .y)) %>% 
+  rename(est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value) %>%
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
+
+# group differences in slopes
+rq2_lmer_slope_diff <- rq2_lmer_summary %>% 
+  filter(term == "time_month_rd:single") %>% 
+  select(outc, outc_fct, est, ci_lo, ci_hi, p_value) 
+```
+
+### Results table
+
+Focusing on the effect of interest: cross-level interaction of time (in months) and group (partnered vs. single)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_lmer_slope_diff %>% select(-1) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  kable(digits = 3)
+```
+
+To compare effect sizes with lavaan models: both now use 30 months of data
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_lmer_slopes <- purrr::imap_dfr(rq2_lmer_models, function(model, model_name) {
+  b <- lme4::fixef(model)
+  V <- as.matrix(vcov(model))
+  
+  slope_p <- b["time_month_rd"]
+  se_p <- sqrt(V["time_month_rd", "time_month_rd"])
+  
+  slope_s <- b["time_month_rd"] + b["time_month_rd:single"]
+  se_s <- sqrt(V["time_month_rd", "time_month_rd"] +
+               V["time_month_rd:single", "time_month_rd:single"] +
+               2 * V["time_month_rd", "time_month_rd:single"])
+  
+  tibble::tibble(
+    outc = gsub("^fit_rq2_lmer_", "", model_name),
+    group = c("Consistently partnered", "Consistently single"),
+    change_30m = c(slope_p, slope_s) * 30,
+    ci_lo = c(slope_p - 1.96 * se_p, slope_s - 1.96 * se_s) * 30,
+    ci_hi = c(slope_p + 1.96 * se_p, slope_s + 1.96 * se_s) * 30
+  )
+})
+
+rq2_lmer_slopes %>% 
+  mutate(change_30m = sprintf("%.3f", change_30m),
+         ci_95 = paste0("[", sprintf("%.3f", ci_lo), ", ", sprintf("%.3f", ci_hi), "]")) %>% 
+  left_join(rq2_lmer_summary %>% distinct(outc, outc_fct), by = "outc") %>% 
+  arrange(outc_fct, factor(group, levels = c("Consistently single", "Consistently partnered"),
+                           labels = c("Consistently single", "Consistently partnered"))) %>% 
+  select(outc_fct, group, change_30m, ci_95) %>% 
+  kable(col.names = c("Outcome", "Group", "30-month change", "95% CI"))
+```
+
+### Summary plot
+
+Construct df for plot: 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# predict at every month and separately for the two groups
+plot_traject_df_rq2_lmer <- 
+  purrr::imap_dfr(rq2_lmer_models, 
+                  ~ggeffects::ggpredict(.x, terms = c("time_month_rd [0:29]", "single [0,1]")) %>%
+  as.data.frame() %>%
+  mutate(outc = .y))
+
+plot_traject_df_rq2_lmer <- plot_traject_df_rq2_lmer %>%
+  mutate(group_fct = factor(group, levels = c(0, 1),
+                            labels = c("Consistently partnered", "Consistently single"),
+                            ordered = TRUE),
+         outc_fct_label = factor(outc, levels = outcomes$short,
+                                 labels = outcomes$maj, ordered = TRUE),
+         time_years = x / 12)
+
+# significance stars in labels
+rq2_lmer_stars <- rq2_lmer_summary %>% 
+  filter(term == "time_month_rd:single") %>% 
+  mutate(stars = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ ""),
+         stars = ifelse(stars == "", "", paste0(" (", stars, ")"))) %>% 
+  select(outc, stars)
+# Add labelled outcome factor for plotting
+plot_traject_df_rq2_lmer <- plot_traject_df_rq2_lmer %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  left_join(rq2_lmer_stars, by = "outc") %>% 
+  mutate(outc_fct_label = ifelse(stars == "", as.character(outc_fct), paste0(as.character(outc_fct), stars)),
+         outc_fct_label = factor(outc_fct_label, levels = unique(outc_fct_label), ordered = TRUE))
+
+# Define common y-axis width across facets
+y_range_rq2_lmer <- 1.7
+plot_traject_limits_rq2_lmer <- plot_traject_df_rq2_lmer %>%
+  group_by(outc_fct_label) %>%
+  summarise(y_mid = mean(range(c(conf.low, conf.high))), .groups = "drop") %>%
+  mutate(y_lower = y_mid - y_range_rq2_lmer / 2,
+         y_upper = y_mid + y_range_rq2_lmer / 2)
+
+y_scales_rq2_lmer <- lapply(seq_len(nrow(plot_traject_limits_rq2_lmer)), function(i) {
+  scale_y_continuous(
+    limits = c(plot_traject_limits_rq2_lmer$y_lower[i],
+               plot_traject_limits_rq2_lmer$y_upper[i]),
+    breaks = seq(floor(plot_traject_limits_rq2_lmer$y_lower[i] * 2) / 2,
+                 ceiling(plot_traject_limits_rq2_lmer$y_upper[i] * 2) / 2,
+                 by = 0.5),
+    labels = scales::label_number(accuracy = 0.1)
+  )
+})
+
+names(y_scales_rq2_lmer) <- as.character(plot_traject_limits_rq2_lmer$outc_fct_label)
+```
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Plot RQ2 MLM model-implied trajectories with 95% confidence bands
+plot_rq2_traject_lmer <- ggplot(plot_traject_df_rq2_lmer, aes(x = time_years, y = predicted,
+                                                               colour = group_fct, fill = group_fct,
+                                                               linetype = group_fct)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .20, colour = NA) +
+  geom_line(linewidth = 1) +
+  scale_colour_manual(values = group_colors, breaks = c("Consistently single", "Consistently partnered")) +
+  scale_fill_manual(values = group_colors, breaks = c("Consistently single", "Consistently partnered")) +
+  scale_linetype_manual(values = group_linetypes, breaks = c("Consistently single", "Consistently partnered")) +
+  facet_wrap(~outc_fct_label, ncol = 2, nrow = 5, scales = "free_y", dir = "v") +
+  ggh4x::facetted_pos_scales(
+    y = list( # no idea why this was necessary here but couldnt get it to work otherwise :(
+      outc_fct_label == "Avoidance: Global" ~ y_scales_rq2_lmer[["Avoidance: Global"]],
+      outc_fct_label == "Avoidance: Romantic (**)" ~ y_scales_rq2_lmer[["Avoidance: Romantic (**)"]],
+      outc_fct_label == "Avoidance: Best Friend" ~ y_scales_rq2_lmer[["Avoidance: Best Friend"]],
+      outc_fct_label == "Avoidance: Mother (**)" ~ y_scales_rq2_lmer[["Avoidance: Mother (**)"]],
+      outc_fct_label == "Avoidance: Father" ~ y_scales_rq2_lmer[["Avoidance: Father"]],
+      outc_fct_label == "Anxiety: Global (*)" ~ y_scales_rq2_lmer[["Anxiety: Global (*)"]],
+      outc_fct_label == "Anxiety: Romantic" ~ y_scales_rq2_lmer[["Anxiety: Romantic"]],
+      outc_fct_label == "Anxiety: Best Friend" ~ y_scales_rq2_lmer[["Anxiety: Best Friend"]],
+      outc_fct_label == "Anxiety: Mother" ~ y_scales_rq2_lmer[["Anxiety: Mother"]],
+      outc_fct_label == "Anxiety: Father" ~ y_scales_rq2_lmer[["Anxiety: Father"]]
+    )
+  ) +
+  labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)",
+       colour = NULL, fill = NULL, linetype = NULL) +
+  guides(colour = guide_legend(title = "Group"),
+         fill = guide_legend(title = "Group"),
+         linetype = guide_legend(title = "Group")) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 10),
+        strip.background = element_rect(fill = "grey95"),
+        legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_line(color = "grey80", linewidth = 0.3),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank())
+  
+# save as pdf
+pdf(width = 6.5, height = 7.5, "figures/rq2_traject_lmer.pdf")
+plot_rq2_traject_lmer
+dev.off()
+```
+
+Show plot: 
+```{r rq2-summary-plot-lmer}
+#| echo: true
+#| fig-width: 6.5
+#| fig-height: 7.5
+#| cache: false
+
+plot_rq2_traject_lmer
+```
+
 ## LGCM but only up to 24 months 
+
+### RQ2 models
+
+#### Adjust templates
+
+```{r rq2-loop-templ-24}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Define 24-month assessment window
+n_waves <- 24
+times <- sprintf("%02d", 0:(n_waves - 1))
+outcome_vars <- paste0("outcome_t", times)
+
+# Intercept loadings
+i_loadings <- paste0("1*", outcome_vars, collapse = " + ")
+
+# Slope loadings (scaled 0 to 1 across 24 months)
+s_values <- seq(0, 1, length.out = n_waves)
+s_loadings <- paste0(round(s_values, 5), "*", outcome_vars, collapse = " + ")
+
+# Residual variance labels
+residuals <- paste0(outcome_vars, " ~~ res_", times, "*", outcome_vars, collapse = "\n")
+
+# Model-implied trajectory parameters
+trajectory_estimates <- paste0("pred_t", times, " := a0 + a1*", round(s_values, 5), collapse = "\n")
+
+# Single-group LGCM template
+rq2_template_24m <- paste0('
+# Define intercept and slope factors
+i =~ ', i_loadings, '
+
+s =~ ', s_loadings, '
+
+# Regress latent growth factors on baseline age
+i ~ bi*age_base_z
+s ~ bs*age_base_z
+
+# Mean structure
+i ~ a0*1
+s ~ a1*1
+
+# Variance structure
+i ~~ vi*i
+s ~~ vs*s
+i ~~ cis*s
+
+# Model-implied trajectories (assuming age_base_z = 0, i.e., sample-average baseline age)
+', trajectory_estimates, '
+
+# Residual variances
+', residuals, '
+')
+
+# Residual variance labels (group-specific)
+residuals_multi <- paste0(outcome_vars, " ~~ c(\"r", times, "_s\", \"r", times, "_p\")*", outcome_vars, collapse = "\n")
+
+# Model-implied trajectory parameters
+trajectory_estimates_multi <- paste0("pred_t", times, "_s := a0_s + a1_s*", round(s_values, 5),
+                                     "\n",
+                                     "pred_t", times, "_p := a0_p + a1_p*", round(s_values, 5), collapse = "\n")
+
+# Multi-group LGCM template
+rq2_template_multi_24m <- paste0('
+# Define intercept and slope factors
+i =~ ', i_loadings, '
+
+s =~ ', s_loadings, '
+
+# Regress latent growth factors on baseline age
+i ~ c("bi_s", "bi_p")*age_base_z
+s ~ c("bs_s", "bs_p")*age_base_z
+
+# Mean structure
+i ~ c("a0_s", "a0_p")*1
+s ~ c("a1_s", "a1_p")*1
+
+# Variance structure
+i ~~ c("vi_s", "vi_p")*i
+s ~~ c("vs_s", "vs_p")*s
+i ~~ c("cis_s", "cis_p")*s
+
+# Model-implied trajectories (assuming age_base_z = 0, i.e., sample-average baseline age)
+', trajectory_estimates_multi, '
+
+# Residual variances
+', residuals_multi, '
+
+')
+
+# Constrained multi-group template
+rq2_template_multi_constr_24m <- stringr::str_replace(rq2_template_multi_24m, 
+                                                       's ~ c\\("a1_s", "a1_p"\\)\\*1', 's ~ a1*1')
+rq2_template_multi_constr_24m <- stringr::str_replace_all(rq2_template_multi_constr_24m, 'a1_s', 'a1')
+rq2_template_multi_constr_24m <- stringr::str_replace_all(rq2_template_multi_constr_24m, 'a1_p', 'a1')
+```
+
+#### Template loop
+
+Run loop over all 5 X 2 outcomes  
+
+(Here, I suppress lavaan warnings in the html output, but they are very similar to the ones shown above for the example model. Below, I go into model diagnostics more systematically.)  
+
+```{r rq2-loop-24}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Loop across all attachment outcomes
+for (i in 1:length(outcomes$short)) {
+  print(paste0("Running outcome: ", outcomes$maj[i]))
+  # Step 1: fill single-group model template (2x, 1 for single, 1 for partnered)
+  print("-> Step 1")
+  model_rq2_24m <- stringr::str_replace_all(rq2_template_24m, "outcome", outcomes$short[i])
+  fit_rq2_24m <- lavaan::growth(model_rq2_24m,
+                                data = df_atta_wide_single_c,
+                                missing = "fiml", verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_24m")), fit_rq2_24m))
+  saveRDS(fit_rq2_24m, file = paste0("models/fit_rq2_", outcomes$short[i], "_24m.rds"))
+  
+  fit_rq2_partn_c_24m <- lavaan::growth(model_rq2_24m,
+                                        data = df_atta_wide_partn_c,
+                                        missing = "fiml", verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_c_24m")), fit_rq2_partn_c_24m))
+  saveRDS(fit_rq2_partn_c_24m, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_c_24m.rds"))
+
+  # Step 2: fill free multigroup model template
+  print("-> Step 2")
+  model_rq2_multi_24m <- stringr::str_replace_all(rq2_template_multi_24m, "outcome", outcomes$short[i])
+  fit_rq2_multi_24m <- lavaan::growth(model_rq2_multi_24m,
+                                      data = df_atta_wide_single_partn_c %>% arrange(group_fct),
+                                      group = "group_fct",
+                                      missing = "fiml", verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_24m")), fit_rq2_multi_24m))
+  saveRDS(fit_rq2_multi_24m, file = paste0("models/fit_rq2_mg_", outcomes$short[i], "_24m.rds"))
+
+  # Step 3: fill constrained multigroup model template
+  print("-> Step 3")
+  model_rq2_multi_constr_24m <- stringr::str_replace_all(rq2_template_multi_constr_24m, "outcome", outcomes$short[i])
+  fit_rq2_multi_constr_24m <- lavaan::growth(model_rq2_multi_constr_24m,
+                                             data = df_atta_wide_single_partn_c %>% arrange(group_fct),
+                                             group = "group_fct",
+                                             missing = "fiml", verbose = FALSE)
+  eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_constr_24m")),
+            fit_rq2_multi_constr_24m))
+  saveRDS(fit_rq2_multi_constr_24m, file = paste0("models/fit_rq2_mg_", 
+                                                  outcomes$short[i], "_constr_24m.rds"))
+
+  # Step 4: likelihood ratio test: free vs constrained slopes
+  print("-> Step 4")
+  lrt_24m <- anova(fit_rq2_multi_24m, fit_rq2_multi_constr_24m)
+  eval(call("<-", as.name(paste0("lrt_rq2_mg_", outcomes$short[i], "_24m")), lrt_24m))
+}
+```
+
+First, parameter extraction  
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+### single-group lavaan models:
+# custom function for parameter extraction
+extract_lav_rq2_24m <- function(fit_obj) {
+  name_obj <- as.character(substitute(fit_obj))
+  name_outc <- name_obj %>% 
+    str_remove("fit_rq2_") %>% 
+    str_remove("_partn_c$") %>% 
+    str_remove("_24m")
+  group_lab <- ifelse(str_detect(name_obj, "partn_c$"),
+                      "Consistently partnered",
+                      "Consistently single")
+  # use tidy() for extraction
+  broom::tidy(fit_obj, conf.int = TRUE, conf.level = 0.95) %>% 
+    filter(label %in% c("a0", "a1", "cis", "bi", "bs", "vi", "vs")) %>% 
+    mutate(outc = name_outc,
+           group_fct = factor(group_lab, 
+                            levels = c("Consistently single", "Consistently partnered", 
+                                       "Intermittently partnered"), 
+                            labels = c("Consistently single", "Consistently partnered", 
+                                       "Intermittently partnered"), ordered = TRUE)) %>% 
+    select(outc, group_fct, term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high,
+           z_value = statistic, p_value = p.value, est_std = std.all)
+}
+
+# bind all model outputs together
+rq2_summary_single_24m <- bind_rows(
+  extract_lav_rq2_24m(fit_rq2_avoi_glo_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_rom_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_fri_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_mot_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_fat_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_glo_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_rom_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_fri_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_mot_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_fat_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_glo_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_rom_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_fri_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_mot_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_avoi_fat_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_glo_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_rom_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_fri_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_mot_partn_c_24m),
+  extract_lav_rq2_24m(fit_rq2_anxi_fat_partn_c_24m)
+)
+
+# Add labels
+rq2_summary_single_24m <- rq2_summary_single_24m %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))#
+
+### multi-group lavaan models
+# custom function for parameter extraction 
+extract_lav_rq2_mg_24m <- function(fit_obj, lrt_obj) {
+  name_obj <- as.character(substitute(fit_obj))
+  name_outc <- str_remove(name_obj, "fit_rq2_mg_") %>% str_remove("_24m")
+  
+  # extract LRT information
+  lrt_tab <- as.data.frame(lrt_obj)
+  lrt_chi <- lrt_tab$`Chisq diff`[2]
+  lrt_df <- lrt_tab$`Df diff`[2]
+  lrt_p <- lrt_tab$`Pr(>Chisq)`[2]
+  
+  # extract model parameters
+  broom::tidy(fit_obj, conf.int = TRUE, conf.level = 0.95) %>% 
+    filter(label %in% c("a0_s", "a0_p", "a1_s", "a1_p", "cis_s", "cis_p",
+                        "bi_s", "bi_p", "bs_s", "bs_p", "vi_s", "vi_p", "vs_s", "vs_p")) %>% 
+    mutate(outc = name_outc,
+           group_fct = case_when(str_detect(label, "_s$") ~ "Consistently single",
+                                 str_detect(label, "_p$") ~ "Consistently partnered",
+                                 TRUE ~ NA_character_),
+      group_fct = factor(group_fct, levels = c("Consistently single", "Consistently partnered",
+                                    "Intermittently partnered"), ordered = TRUE),
+      lrt_chi = ifelse(str_detect(label, "^a1_"), lrt_chi, NA),
+      lrt_df = ifelse(str_detect(label, "^a1_"), lrt_df, NA),
+      lrt_p = ifelse(str_detect(label, "^a1_"), lrt_p, NA)) %>% 
+    select(outc, group_fct, term = label,
+           est = estimate, ci_lo = conf.low, ci_hi = conf.high,
+           z_value = statistic, p_value = p.value, est_std = std.all,
+           lrt_chi, lrt_df, lrt_p)
+}
+
+# bind all model outputs together
+rq2_summary_mg_24m <- bind_rows(
+  extract_lav_rq2_mg_24m(fit_rq2_mg_avoi_glo_24m, lrt_rq2_mg_avoi_glo_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_avoi_rom_24m, lrt_rq2_mg_avoi_rom_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_avoi_fri_24m, lrt_rq2_mg_avoi_fri_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_avoi_mot_24m, lrt_rq2_mg_avoi_mot_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_avoi_fat_24m, lrt_rq2_mg_avoi_fat_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_anxi_glo_24m, lrt_rq2_mg_anxi_glo_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_anxi_rom_24m, lrt_rq2_mg_anxi_rom_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_anxi_fri_24m, lrt_rq2_mg_anxi_fri_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_anxi_mot_24m, lrt_rq2_mg_anxi_mot_24m),
+  extract_lav_rq2_mg_24m(fit_rq2_mg_anxi_fat_24m, lrt_rq2_mg_anxi_fat_24m)
+)
+
+# Add labels
+rq2_summary_mg_24m <- rq2_summary_mg_24m %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
+```
+
+#### Model fit
+
+Fit statistics: single-group models
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# model fit statistics: single-group models
+rq2_fit_single_24m <- outcomes$short %>% 
+  purrr::map_dfr(function(x) {
+    bind_rows(
+      broom::glance(get(paste0("fit_rq2_", x, "_24m"))) %>% 
+        mutate(outc = x, group_fct = "Consistently single"),
+      broom::glance(get(paste0("fit_rq2_", x, "_partn_c_24m"))) %>% 
+        mutate(outc = x, group_fct = "Consistently partnered"))
+  }) %>% 
+  select(outc, group_fct, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
+  mutate(
+    outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE),
+    group_fct = factor(group_fct,
+                       levels = c("Consistently single",
+                                  "Consistently partnered",
+                                  "Intermittently partnered"),
+                       ordered = TRUE))
+
+rq2_fit_single_24m %>% select(-outc) %>% 
+  select(outc_fct, group_fct, everything()) %>% 
+  kable(digits = 3)
+```
+
+Fit statistics: multi-group models (of consistently single & consistently partnered)
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# model fit statistics: multi-group models
+rq2_fit_mg_24m <- outcomes$short %>% 
+  purrr::map_dfr(function(x) {
+    broom::glance(get(paste0("fit_rq2_mg_", x, "_24m"))) %>% 
+      mutate(outc = x)
+  }) %>% 
+  select(outc, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
+
+rq2_fit_mg_24m %>% 
+  select(-outc) %>% 
+  select(outc_fct, everything()) %>% 
+  kable(digits = 3)
+```
+
+#### Model diagnostics
+
+- Did the model converge?  
+- Did lavaan's internal check pass?  
+- Are there inadmissible negative variances?  
+
+##### Single-group models
+
+```{r}
+#| echo: true
+#| warning: true
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# diagnostics for all single-group and partnered RQ2 models
+rq2_models_24m <- c("fit_rq2_avoi_glo_24m", "fit_rq2_avoi_rom_24m",
+                "fit_rq2_avoi_fri_24m", "fit_rq2_avoi_mot_24m",
+                "fit_rq2_avoi_fat_24m", "fit_rq2_anxi_glo_24m",
+                "fit_rq2_anxi_rom_24m", "fit_rq2_anxi_fri_24m",
+                "fit_rq2_anxi_mot_24m", "fit_rq2_anxi_fat_24m",
+                "fit_rq2_avoi_glo_partn_c_24m", "fit_rq2_avoi_rom_partn_c_24m",
+                "fit_rq2_avoi_fri_partn_c_24m", "fit_rq2_avoi_mot_partn_c_24m",
+                "fit_rq2_avoi_fat_partn_c_24m", "fit_rq2_anxi_glo_partn_c_24m",
+                "fit_rq2_anxi_rom_partn_c_24m", "fit_rq2_anxi_fri_partn_c_24m",
+                "fit_rq2_anxi_mot_partn_c_24m", "fit_rq2_anxi_fat_partn_c_24m")
+
+rq2_diagnostics_24m <- purrr::map_dfr(rq2_models_24m, function(x) {
+  fit <- get(x)
+  tibble(
+    model = x,
+    converged = lavInspect(fit, "converged"),
+    post_check = lavInspect(fit, "post.check"),
+    neg_variances = any(parameterEstimates(fit)$op == "~~" &
+                          parameterEstimates(fit)$lhs == parameterEstimates(fit)$rhs &
+                          parameterEstimates(fit)$est < 0))
+})
+
+rq2_diagnostics_24m %>% kable(digits = 3)
+```
+
+##### Multi-group models
+
+```{r}
+#| echo: true
+#| warning: true
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_mg_models_24m <- c("fit_rq2_mg_avoi_glo_24m", "fit_rq2_mg_avoi_rom_24m",
+                   "fit_rq2_mg_avoi_fri_24m", "fit_rq2_mg_avoi_mot_24m",
+                   "fit_rq2_mg_avoi_fat_24m", "fit_rq2_mg_anxi_glo_24m",
+                   "fit_rq2_mg_anxi_rom_24m", "fit_rq2_mg_anxi_fri_24m",
+                   "fit_rq2_mg_anxi_mot_24m", "fit_rq2_mg_anxi_fat_24m")
+
+rq2_mg_diagnostics_24m <- purrr::map_dfr(rq2_mg_models_24m, function(x) {
+  fit <- get(x)
+  pe <- parameterEstimates(fit)
+  tibble(
+    model = x,
+    converged = lavInspect(fit, "converged"),
+    post_check = lavInspect(fit, "post.check"),
+    neg_variances = any(pe$op == "~~" &
+                          pe$lhs == pe$rhs &
+                          pe$est < 0))
+})
+
+rq2_mg_diagnostics_24m %>% kable(digits = 3)
+```
+
+#### Summary tables
+
+##### Single-group models
+
+Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1): 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_24m_a <- rq2_summary_single_24m %>% 
+  filter(term=="a0" | term=="a1") %>%
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_24m_a %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_24m_a))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Very similar .
+:::
+
+Latent intercept-slope covariance: (cis) 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_24m_cis <- rq2_summary_single_24m %>% 
+  filter(term=="cis") %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_24m_cis %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq2_table_24m_cis))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Variances of the latent intercept and slope factors: (vi) & (vs)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_24m_v <- rq2_summary_single_24m %>% 
+  filter(stringr::str_starts(term, "v")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+
+rq2_table_24m_v %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_24m_v))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Age moderation of latent intercept and slope factors: (bi) & (bs)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_24m_b <- rq2_summary_single_24m %>% 
+  filter(term=="bi" | term=="bs") %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_24m_b %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_24m_b))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+##### Multi-group models
+
+Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_24m_a <- rq2_summary_mg_24m %>% 
+  filter(stringr::str_starts(term, "a")) %>%
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, lrt_chi, lrt_p)
+
+rq2_table_mg_24m_a %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_mg_24m_a))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Very similar .
+:::
+
+Latent intercept-slope covariance: (cis)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_24m_cis <- rq2_summary_mg_24m %>% 
+  filter(stringr::str_starts(term, "cis")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_mg_24m_cis %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq2_table_mg_24m_cis))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Variances of the latent intercept and slope factors: (vi) & (vs)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_24m_v <- rq2_summary_mg_24m %>% 
+  filter(stringr::str_starts(term, "v")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+
+rq2_table_mg_24m_v %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_mg_24m_v))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Age moderation of latent intercept and slope factors: (bi) & (bs)  
+
+--> "_s" for single, "_p" for partnered  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq2_table_mg_24m_b <- rq2_summary_mg_24m %>% 
+  filter(stringr::str_starts(term, "b")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq2_table_mg_24m_b %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_mg_24m_b))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+#### Summary plot
+
+Create plots for manuscript: start with extracting the parameters
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Custom function to extract model-implied trajectories from lavaan defined parameters
+# same function as above
+
+# Extract trajectories from all multi-group RQ2 models
+plot_traject_list_rq2_24m <- list()
+for (i in 1:length(outcomes$short)) {
+  fit <- readRDS(paste0("models/fit_rq2_mg_", outcomes$short[i], "_24m.rds"))
+  plot_traject_list_rq2_24m[[i]] <- extract_rq2_plot_traject(fit, outcomes$maj[i])
+}
+plot_traject_df_rq2_24m <- bind_rows(plot_traject_list_rq2_24m)
+
+# Check extracted plotting dataframe
+head(plot_traject_df_rq2_24m)
+table(plot_traject_df_rq2_24m$outcome, plot_traject_df_rq2_24m$group)
+
+# create factor variables:
+plot_traject_df_rq2_24m <- plot_traject_df_rq2_24m %>%
+  mutate(outc_fct = factor(outcome, levels = outcomes$maj, labels = outcomes$maj, ordered = TRUE),
+         group_fct = factor(group, levels = c("Consistently single", "Consistently partnered"), ordered = TRUE))
+
+# a bit tricky: handling variable y-axis ranges...
+# Define common y-axis width across facets
+y_range_rq2 <- 1.7
+# Calculate facet-specific y-axis limits with equal zoom
+plot_traject_limits_rq2_24m <- plot_traject_df_rq2_24m %>%
+  group_by(outc_fct) %>%
+  summarise(y_mid = mean(range(c(ci_low, ci_high)))) %>%
+  mutate(y_lower = y_mid - y_range_rq2 / 2,
+         y_upper = y_mid + y_range_rq2 / 2)
+# Create facet-specific y-axis scales with half-point breaks
+y_scales_rq2_24m <- lapply(1:nrow(plot_traject_limits_rq2_24m), function(i) {
+  scale_y_continuous(limits = c(plot_traject_limits_rq2_24m$y_lower[i],
+                                plot_traject_limits_rq2_24m$y_upper[i]),
+                     breaks = seq(floor(plot_traject_limits_rq2_24m$y_lower[i] * 2) / 2,
+                                  ceiling(plot_traject_limits_rq2_24m$y_upper[i] * 2) / 2,
+                                  by = 0.5),
+                     labels = scales::label_number(accuracy = 0.1))
+})
+
+# Create significance labels from LRT p-values
+rq2_sig_labels_24m <- rq2_table_mg_24m_a %>%
+  filter(term == "a1_s") %>%
+  mutate(sig = case_when(lrt_p < .001 ~ "***",
+                         lrt_p < .01 ~ "**",
+                         lrt_p < .05 ~ "*",
+                         TRUE ~ "")) %>%
+  select(outc_fct, sig) %>% 
+  mutate(outc_label = ifelse(sig == "", as.character(outc_fct), paste0(as.character(outc_fct), " (", sig, ")")))
+# Add labelled outcome factor for plotting
+plot_traject_df_rq2_24m <- plot_traject_df_rq2_24m %>%
+  left_join(rq2_sig_labels_24m %>% select(outc_fct, outc_label), by = "outc_fct") %>%
+  mutate(outc_fct_label = factor(outc_label, levels = unique(outc_label))) %>% 
+  mutate(outc_fct_label = factor(outc_fct_label, levels = unique(outc_fct_label), ordered = TRUE))
+```
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Plot RQ2 model-implied trajectories with 95% confidence bands
+plot_rq2_traject_24m <- ggplot(plot_traject_df_rq2_24m, aes(x = time_years, y = estimate, 
+                                                     colour = group_fct, fill = group_fct,
+                                                     linetype = group_fct)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = .20, colour = NA) +
+  geom_line(linewidth = 1) +
+  scale_colour_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  scale_linetype_manual(values = group_linetypes) +
+  facet_wrap(~outc_fct_label, ncol = 2, nrow = 5, scales = "free_y", dir = "v") +
+  ggh4x::facetted_pos_scales(y = y_scales_rq2) +
+  labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)", 
+       colour = NULL, fill = NULL, linetype = NULL) +
+  guides(colour = guide_legend(title = "Group"),
+         fill = guide_legend(title = "Group"),
+         linetype = guide_legend(title = "Group")) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 10),
+        strip.background = element_rect(fill = "grey95"),
+        legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_line(color = "grey80", linewidth = 0.3),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank())
+
+# save as pdf
+pdf(width = 6.5, height = 7.5, "figures/rq2_traject_24m.pdf")
+plot_rq2_traject_24m
+dev.off()
+```
+
+Show plot: 
+```{r rq2-summary-plot-24m-show}
+#| echo: true
+#| fig-width: 6.5
+#| fig-height: 7.5
+#| cache: false
+
+plot_rq2_traject_24m
+```
+
+#### Full model results
+
+##### Single-group models
+
+###### `r outcomes$maj[1]`
+
+Full model results for `r outcomes$min[1]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[1], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[1]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[1], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[2]`
+
+Full model results for `r outcomes$min[2]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[2], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[2]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[2], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[3]`
+
+Full model results for `r outcomes$min[3]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[3], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[3]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[3], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[4]`
+
+Full model results for `r outcomes$min[4]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[4], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[4]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[4], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[5]`
+
+Full model results for `r outcomes$min[5]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[5], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[5]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[5], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[6]`
+
+Full model results for `r outcomes$min[6]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[6], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[6]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[6], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[7]`
+
+Full model results for `r outcomes$min[7]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[7], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[7]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[7], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[8]`
+
+Full model results for `r outcomes$min[8]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[8], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[8]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[8], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[9]`
+
+Full model results for `r outcomes$min[9]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[9], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[9]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[9], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[10]`
+
+Full model results for `r outcomes$min[10]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[10], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+Full model results for `r outcomes$min[10]` (in the consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_", outcomes$short[10], "_partn_c_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+##### Multi-group models
+
+###### `r outcomes$maj[1]`
+
+Full model results for `r outcomes$min[1]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[1], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[2]`
+
+Full model results for `r outcomes$min[2]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[2], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[3]`
+
+Full model results for `r outcomes$min[3]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[3], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[4]`
+
+Full model results for `r outcomes$min[4]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[4], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[5]`
+
+Full model results for `r outcomes$min[5]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[5], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[6]`
+
+Full model results for `r outcomes$min[6]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[6], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[7]`
+
+Full model results for `r outcomes$min[7]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[7], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[8]`
+
+Full model results for `r outcomes$min[8]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[8], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[9]`
+
+Full model results for `r outcomes$min[9]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[9], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+###### `r outcomes$maj[10]`
+
+Full model results for `r outcomes$min[10]` (comparing consistently single & consistently partnered people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[10], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+### RQ3 models
+
+#### Adjust templates
+
+```{r rq3-loop-templ-24}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Define number of assessment waves
+n_waves <- 24  # t00 to t23
+
+# Create variable names
+times <- sprintf("%02d", 0:(n_waves - 1))
+outcome_vars <- paste0("outcome_t", times)
+swb_vars <- paste0("swb_t", times)
+
+# Intercept loadings
+i_loadings_out <- paste0("1*", outcome_vars, collapse = " + ")
+i_loadings_swb <- paste0("1*", swb_vars, collapse = " + ")
+
+# Slope loadings (scaled 0 to 1)
+s_values <- seq(0, 1, length.out = n_waves)
+s_loadings_out <- paste0(round(s_values, 5), "*", outcome_vars, collapse = " + ")
+s_loadings_swb <- paste0(round(s_values, 5), "*", swb_vars, collapse = " + ")
+
+# Residual variance labels
+res_out <- paste0(outcome_vars, " ~~ ra", times, "*", outcome_vars, collapse = "\n")
+res_swb <- paste0(swb_vars, " ~~ rw", times, "*", swb_vars, collapse = "\n")
+
+# Residual covariance labels
+res_cov <- paste0(outcome_vars, " ~~ rc", times, "*", swb_vars, collapse = "\n")
+
+# Bivariate LGCM template
+rq3_template_24m <- paste0('
+# Define intercept and slope factors
+ia =~ ', i_loadings_out, '
+sa =~ ', s_loadings_out, '
+
+iw =~ ', i_loadings_swb, '
+sw =~ ', s_loadings_swb, '
+
+# Regress latent growth factors on baseline age
+ia ~ bia*age_base_z
+sa ~ bsa*age_base_z
+iw ~ biw*age_base_z
+sw ~ bsw*age_base_z
+
+# Mean structure
+ia ~ a0*1
+sa ~ a1*1
+iw ~ w0*1
+sw ~ w1*1
+
+# Variance structure
+ia ~~ via*ia
+sa ~~ vsa*sa
+ia ~~ cisa*sa
+
+iw ~~ viw*iw
+sw ~~ vsw*sw
+iw ~~ cisw*sw
+
+# Cross-process covariances
+ia ~~ cii*iw
+ia ~~ cis_aw*sw
+iw ~~ cis_wa*sa
+sa ~~ css*sw
+
+# Residual variances
+', res_out, '
+
+', res_swb, '
+
+# Residual covariances
+', res_cov, '
+')
+```
+
+#### Template loop
+
+Run loop over all 5 X 2 outcomes  
+
+(Here, I suppress lavaan warnings in the html output, but they are very similar to the ones shown above for the example model. Below, I go into model diagnostics more systematically.)  
+
+```{r rq3-loop-24}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Loop across all attachment outcomes
+for (i in 1:length(outcomes$short)) {
+  print(paste0("Running outcome: ", outcomes$maj[i]))
+
+  # Fill bivariate LGCM template
+  model_rq3_24m <- stringr::str_replace_all(rq3_template_24m, "outcome", outcomes$short[i])
+
+  # Fit model in consistently single people
+  fit_rq3_24m <- lavaan::growth(model_rq3_24m,
+                                data = df_atta_wide_single_c,
+                                missing = "fiml",
+                                verbose = FALSE)
+
+  # Save model object
+  eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_24m")), fit_rq3_24m))
+  saveRDS(fit_rq3_24m, file = paste0("models/fit_rq3_", outcomes$short[i], "_24m.rds"))
+}
+```
+
+Create summary table of all effects of interest: parameter extraction  
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# custom function for parameter extraction from bivariate LGCMs
+# same function as above
+
+# bind all model outputs together
+rq3_summary_24m <- bind_rows(
+  extract_lav_rq3(fit_rq3_avoi_glo_24m),
+  extract_lav_rq3(fit_rq3_avoi_rom_24m),
+  extract_lav_rq3(fit_rq3_avoi_fri_24m),
+  extract_lav_rq3(fit_rq3_avoi_mot_24m),
+  extract_lav_rq3(fit_rq3_avoi_fat_24m),
+  extract_lav_rq3(fit_rq3_anxi_glo_24m),
+  extract_lav_rq3(fit_rq3_anxi_rom_24m),
+  extract_lav_rq3(fit_rq3_anxi_fri_24m),
+  extract_lav_rq3(fit_rq3_anxi_mot_24m),
+  extract_lav_rq3(fit_rq3_anxi_fat_24m)
+)
+# Add labels
+rq3_summary_24m <- rq3_summary_24m %>% 
+  mutate(outc = str_remove(outc, "_24m"),
+         outc_fct = factor(outc, levels = outcomes$short,
+                           labels = outcomes$maj, ordered = TRUE))
+```
+
+#### Model fit
+
+Fit statistics: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# model fit statistics: single-group models
+rq3_fit_single_24m <- outcomes$short %>% 
+  purrr::map_dfr(function(x) {
+    bind_rows(
+      broom::glance(get(paste0("fit_rq3_", x, "_24m"))) %>% 
+        mutate(outc = x, group_fct = "Consistently single"))
+  }) %>% 
+  select(outc, group_fct, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
+  mutate(
+    outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE),
+    group_fct = factor(group_fct,
+                       levels = c("Consistently single",
+                                  "Consistently partnered",
+                                  "Intermittently partnered"),
+                       ordered = TRUE))
+
+rq3_fit_single_24m %>% select(-outc) %>% 
+  select(outc_fct, group_fct, everything()) %>% 
+  kable(digits = 3)
+```
+
+::: {.callout-note appearance="minimal"}
+Pretty similar across outcomes, with 
+:::
+
+#### Model diagnostics
+
+- Did the model converge?  
+- Did lavaan's internal check pass?  
+- Are there inadmissible negative variances?  
+
+```{r}
+#| echo: true
+#| warning: true
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# diagnostics for all single-group and partnered RQ2 models
+rq3_models_24m <- c("fit_rq3_avoi_glo_24m", "fit_rq3_avoi_rom_24m",
+                "fit_rq3_avoi_fri_24m", "fit_rq3_avoi_mot_24m",
+                "fit_rq3_avoi_fat_24m", "fit_rq3_anxi_glo_24m",
+                "fit_rq3_anxi_rom_24m", "fit_rq3_anxi_fri_24m",
+                "fit_rq3_anxi_mot_24m", "fit_rq3_anxi_fat_24m")
+
+rq3_diagnostics_24m <- purrr::map_dfr(rq3_models_24m, function(x) {
+  fit <- get(x)
+  tibble(
+    model = x,
+    converged = lavInspect(fit, "converged"),
+    post_check = lavInspect(fit, "post.check"),
+    neg_variances = any(parameterEstimates(fit)$op == "~~" &
+                          parameterEstimates(fit)$lhs == parameterEstimates(fit)$rhs &
+                          parameterEstimates(fit)$est < 0))
+})
+
+rq3_diagnostics_24m %>% kable(digits = 3)
+```
+
+#### Summary tables
+
+Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alpha1" (a1 = attach, w1 = life sat): 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_24m_a <- rq3_summary_24m %>% 
+  filter(term=="a0" | term=="a1" | term=="w0" | term=="w1") %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_24m_a %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_24m_a))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Very similar .
+:::
+
+Latent intercept / slope variances & covariance - general terminology:  
+- (a) = attachment  
+- (w) = well-being (life satisf.)  
+- (c) = covariance  
+- (v) = variance  
+- (i) = latent intercept  
+- (s) = latent slope   
+
+Cross-construct covariances (which are most relevant for the hypotheses):  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_24m_cross <- rq3_summary_24m %>% 
+  filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_24m_cross %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_24m_cross))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_summary_24m %>% 
+  filter(term=="css") %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
+  knitr::kable(digits = 3)
+```
+
+Within-construct intercept-slope covariances:  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_24m_cis <- rq3_summary_24m %>% 
+  filter(term %in% c("cisa", "cisw")) %>% 
+  arrange(outc_fct, group_fct) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_24m_cis %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 2, length.out = nrow(rq3_table_24m_cis))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_24m_v <- rq3_summary_24m %>% 
+  filter(stringr::str_starts(term, "v")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+
+rq3_table_24m_v %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_24m_v))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+Age moderation of latent intercept and slope factors: (bi) & (bs)
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+rq3_table_24m_b <- rq3_summary_24m %>% 
+  filter(stringr::str_starts(term, "bi") | stringr::str_starts(term, "bs")) %>% 
+  arrange(outc_fct, group_fct, term) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+
+rq3_table_24m_b %>% 
+  knitr::kable(digits = 3, format = "html") %>% 
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("bordered")) %>% 
+  kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq3_table_24m_b))),
+                       background = "lightgrey")
+```
+
+::: {.callout-note appearance="minimal"}
+Significant ...
+:::
+
+#### Summary plot
+
+We're plotting the standardized effects (i.e., slope-slope correlations).  
+
+Create plots for manuscript: start with extracting the parameters  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Extract standardized slope-slope correlation and CI
+extract_rq3_css_std <- function(fit_obj, name_obj) {
+  name_outc <- name_obj %>% 
+    stringr::str_remove("fit_rq3_") %>% 
+    stringr::str_remove("_partn_c$|_partn_i$")
+  
+  lavaan::standardizedSolution(fit_obj, ci = TRUE) %>% 
+    filter(label == "css") %>% 
+    mutate(outc = name_outc,
+           est = est.std,
+           ci_lo = ci.lower,
+           ci_hi = ci.upper) %>% 
+    select(outc, est, ci_lo, ci_hi, p_value = pvalue)
+}
+
+# Extract all RQ3 slope-slope correlations
+rq3_plot_css_24m <- bind_rows(lapply(rq3_models_24m, function(x) {
+  extract_rq3_css_std(get(x), x) %>% 
+    mutate(outc = stringr::str_remove(outc, "_24m")) # added this here
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE))
+```
+
+Create and save plot: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# Plot standardized slope-slope correlations
+plot_rq3_css_24m <- ggplot(rq3_plot_css_24m, aes(x = est, 
+                                         y = forcats::fct_rev(domain_fct),
+                                         colour = forcats::fct_rev(pred_fct), 
+                                         shape = forcats::fct_rev(pred_fct))) +
+  geom_rect(data = bg_df_rq3,
+            aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
+            inherit.aes = FALSE,
+            fill = bg_df_rq3$fill,
+            alpha = 0.5) +
+  geom_vline(xintercept = 0, colour = "black") +
+  geom_point(size = 2.5, position = position_dodge(width = 0.6)) +
+  geom_errorbarh(aes(xmin = ci_lo, xmax = ci_hi), 
+                 height = 0.3, position = position_dodge(width = 0.6),
+                 linewidth = 0.3, alpha = 0.85) +
+  scale_colour_manual(values = c("Avoidance" = "#D55E00", "Anxiety" = "#0072B2"),
+                      breaks = c("Avoidance", "Anxiety")) +
+  scale_shape_manual(values = c("Avoidance" = 17, "Anxiety" = 16),
+                     breaks = c("Avoidance", "Anxiety")) +
+  scale_x_continuous(limits = c(-0.60, 0.20), 
+                     breaks = seq(-0.60, 0.20, by = 0.20),
+                     labels = scales::label_number(accuracy = 0.1),
+                     oob = scales::oob_keep) +
+  labs(x = "Slope-slope correlation (95% CI)", 
+       y = NULL, colour = NULL, shape = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.key.width = unit(1.3, "cm"),
+        panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3), panel.grid.minor.x = element_blank()) +
+  guides(colour = guide_legend(title = "Attachment variable"),
+         shape = guide_legend(title = "Attachment variable"))
+
+# save as pdf
+pdf(width = 6, height = 4.5, "figures/rq3_plot_css_24m.pdf")
+plot_rq3_css_24m
+dev.off()
+```
+
+Show plot: 
+```{r rq3-summary-plot-24m-show}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4.5
+#| cache: false
+
+plot_rq3_css_24m
+```
+
+#### Full model results
+
+##### `r outcomes$maj[1]`
+
+Full model results for `r outcomes$min[1]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[1], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[2]`
+
+Full model results for `r outcomes$min[2]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[2], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[3]`
+
+Full model results for `r outcomes$min[3]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[3], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[4]`
+
+Full model results for `r outcomes$min[4]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[4], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[5]`
+
+Full model results for `r outcomes$min[5]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[5], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[6]`
+
+Full model results for `r outcomes$min[6]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[6], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[7]`
+
+Full model results for `r outcomes$min[7]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[7], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[8]`
+
+Full model results for `r outcomes$min[8]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[8], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[9]`
+
+Full model results for `r outcomes$min[9]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[9], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+
+##### `r outcomes$maj[10]`
+
+Full model results for `r outcomes$min[10]` (in the consistently single people):
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the code"
+
+broom::tidy(get(paste0("fit_rq3_", outcomes$short[10], "_24m")), conf.int = TRUE, conf.level = 0.95) %>% 
+  filter(label != "") %>% 
+  arrange(label) %>% 
+  select(term = label, est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value, est_std = std.all) %>% 
+  knitr::kable(digits = 3)
+```
 
 # Packages used
 
