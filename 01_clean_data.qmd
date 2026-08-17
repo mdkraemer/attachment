@@ -57,7 +57,7 @@ Here, we combine both data sets.
 ```{r load}
 #| echo: true
 #| warning: false
-#| output: false
+#| output: true
 #| cache: false
 
 df_expl <- read.delim("data/raw/explore2long.txt") %>% arrange(user_id, time) %>% as_tibble()
@@ -70,7 +70,7 @@ Combine both data sets
 ```{r combine}
 #| echo: true
 #| warning: false
-#| output: false
+#| output: true
 #| cache: false
 
 # check IDs first
@@ -84,13 +84,16 @@ summary(df_conf$user_id)
 df_atta_full <- bind_rows(df_expl, df_conf) %>% arrange(user_id, time)
 rm(df_conf)
 rm(df_expl)
+
+df_atta_full %>% summarise(n_distinct(user_id))
+summary(df_atta_full$user_id)
 ```
 
 Select relevant variables: 
 ```{r select}
 #| echo: true
 #| warning: false
-#| output: false
+#| output: true
 #| cache: false
 
 df_atta <- df_atta_full %>% 
@@ -99,7 +102,7 @@ df_atta <- df_atta_full %>%
   ungroup() %>% 
   mutate(year = as.numeric(substr(registration_date, 1, 4))) %>% 
   select(pid, time, sex, birthyear, year, 
-         # country, ethnicity,  # almost all from US; ethniticy was open response, therefore not really helpful
+         # country, ethnicity,  # -> almost all from US; ethniticy was open response, therefore not really helpful
          # from background information - assessed in the beginning and could be changed manually afterwards: 
          education, religion, politics, libcon, involved, involved2, employed, 
          starts_with(c("avoid", "anxiety")), # attachment variables (a-e)
@@ -108,7 +111,7 @@ df_atta <- df_atta_full %>%
          event_marrie = event13, event_separa = event22, event_divorc = event23, 
          submission_date3_365, submission_date4_365)
 
-# random example of data structure:
+# randomly selected example of data structure:
 df_atta %>%
   semi_join(
     df_atta %>%
@@ -116,6 +119,8 @@ df_atta %>%
       slice_sample(n = 1),
     by = "pid"
   ) %>% select(time, submission_date3_365, involved, event_dating, event_separa, avoide, anxietye) %>% print(n=30)
+
+# no time gaps in between (skipped asssessments) are considered; 'time‘ just fills up from 0 up to 23 in the order of completed surveys    
 ```
 
 ### Filter data
@@ -165,7 +170,9 @@ df_atta <- df_atta %>%
          time_month_rd = round(submission_date3_365 * 12))
 
 # Life events were asked with regard to time since the last assessment: "Participants were asked whether 25 life events or experiences had taken place since the last assessment."
-# code as consecutive if monthly lag is less than 3 months - or rather be more liberal = 4/5 months?
+
+# code as consecutive if monthly lag is less than 3 months 
+# or rather be more liberal = 4 or 5 months? (4 would result in ~300 more participants and 5 in another ~200 more; however, these have more pronounced gaps in assessment schedules... I'll stick with 2 months)
 df_atta <- df_atta %>% 
   arrange(pid, time_months) %>% 
   group_by(pid) %>% 
@@ -173,7 +180,7 @@ df_atta <- df_atta %>%
   mutate(consec = ifelse(month_lag < 3 | (time_months==0 & lead(month_lag)<3), 1, 0)) %>% 
   ungroup()
 
-# keep case with 3 consecutive waves:
+# keep cases with 3 consecutive waves:
 # A participant qualifies if there is a sequence of 3 assessments where the two gaps between them are each < 3 months.
 
 df_atta <- df_atta %>% 
@@ -199,6 +206,8 @@ eligible_pid <- df_atta %>%
 # filter data to these cases:
 df_atta <- df_atta %>% 
   filter(pid %in% eligible_pid)
+
+df_atta %>% summarise(n(), n_distinct(pid))
 
 # check again: number of waves per person
 df_atta %>%
@@ -316,11 +325,12 @@ Now filter to include only those who are in one of the three (plus 1) groups:
 #| output: true
 #| cache: false
 
-# Prereg: "Finally, for someone to be included in the group of intermittently partnered individuals, they need to have answered the relationship status question with “Yes, I am dating someone”, or “Yes, I am married” at least once and with “No” at least once. No additional conditions due to life events are applied."
+df_atta %>% summarise(n = n(), N=n_distinct(pid))
 
 df_atta <- df_atta %>% 
   filter(single_consist==1 | partner_consist==1 | partner_interm==1 | single_later_partn==1)
 # the cases that are dropped could not be clearly categorized (e.g., always involved==1 but still reporting events)
+df_atta %>% summarise(n = n(), N=n_distinct(pid))
 ```
 
 ### Code time
@@ -367,6 +377,7 @@ df_atta %>%
     q95_abs_error = quantile(abs_rounding_error, 0.95, na.rm = TRUE),
     max_abs_error = max(abs_rounding_error, na.rm = TRUE)
   )
+# mostly around 0.2 months (~6 days)
 
 df_atta %>% count(time_month_rd) %>% print(n=50)
 # may be good to use a monthly grid up to ~32–35 months and discard later months
@@ -384,11 +395,12 @@ For now we try with 35 months as the upper limit:
 df_atta <- df_atta %>% 
   filter(time_month_rd<=35)
 # This drops 191 obs 107 from pers
+df_atta %>% summarise(n = n(), N=n_distinct(pid))
 
 df_atta %>% count(time_month_rd) %>% print(n=50)
 ```
 
-Deal with duplicate person-months:
+Deal with duplicate person-months (in the rounded month variable):
 ```{r}
 #| echo: true
 #| warning: false
@@ -433,7 +445,7 @@ df_atta %>%
 df_atta <- df_atta %>% 
   filter(pid!=97)
 
-# With the other cases, I will first attempt a repair / correction function to "save" some cases where the earlier rounding artificially caused duplicate months. Second, I will drop any remaining duplicate person-months, keeping only the first.
+# With the other cases, I will first attempt a repair / correction function to "save" some cases where the earlier rounding artificially caused duplicate months. Second, I will drop any remaining duplicate person-months, keeping only the first entry per person-month.
 
 # Step 1: Create a copy of the rounded month variable
 df_atta <- df_atta %>%
@@ -452,7 +464,7 @@ df_atta <- df_atta %>%
   rename(n_same_month = n)
 
 # Step 4: Calculate exact-time gaps within duplicated months
-#For each duplicate month, order observations by their actual time:
+# For each duplicate month, order observations by their actual time:
 df_atta <- df_atta %>%
   group_by(pid, time_month_rd) %>%
   arrange(time_months, .by_group = TRUE) %>%
@@ -460,14 +472,11 @@ df_atta <- df_atta %>%
     duplicate_order = if_else(
       n_same_month > 1,
       row_number(),
-      NA_integer_
-    ),
+      NA_integer_),
     duplicate_gap = if_else(
       n_same_month > 1,
       time_months - lag(time_months),
-      NA_real_
-    )
-  ) %>%
+      NA_real_)) %>%
   ungroup()
 
 # Step 5: Identify repair candidates
@@ -481,24 +490,17 @@ occupied_months <- df_atta %>% # Then check whether that month already exists fo
   mutate(month_exists = TRUE)
 
 df_atta <- df_atta %>%
-  left_join(
-    occupied_months %>%
-      rename(
-        proposed_month = time_month_rd,
-        proposed_exists = month_exists
-      ),
-    by = c("pid", "proposed_month")
-  )
+  left_join(occupied_months %>%
+      rename(proposed_month = time_month_rd,
+             proposed_exists = month_exists),
+      by = c("pid", "proposed_month"))
+
 # Step 6: Flag observations that can be shifted
 df_atta <- df_atta %>%
-  mutate(
-    repair_duplicate = 
-      n_same_month > 1 &
-      duplicate_order == 2 &
-      duplicate_gap >= (3/5) & # pretty arbitrary but this seems reasonable
-      is.na(proposed_exists),
-      TRUE,
-      FALSE)
+  mutate(repair_duplicate = n_same_month > 1 & duplicate_order == 2 &
+           duplicate_gap >= (3/5) & # pretty arbitrary but this seems reasonable
+           is.na(proposed_exists),
+         TRUE, FALSE)
 table(df_atta$repair_duplicate) # this only concerns 25 observations
 
 # Inspect cases: 
@@ -542,6 +544,7 @@ df_atta %>%
         q95_spread = quantile(spread, .95),
         max_spread = max(spread)
     )
+# most of these duplicates are filled out on the same day
 ```
 
 Drop the remaining duplicate person-months: 
@@ -613,9 +616,9 @@ df_atta %>% select(1:5, age, sex, age_base) %>% filter(age!=age_base)
 # these are the same; not really necessary (likely that 'year' just refers to the baseline) -> but ok for us!
 ```
 
-## RQ1: selection effects data frame
+# RQ1: selection effects data frame
 
-### Filter and collapse to cross-sectional
+## Filter and collapse to cross-sectional
 
 ```{r}
 #| echo: true
@@ -628,7 +631,7 @@ df_atta_rq1 <- df_atta %>%
   filter(particip_nr==0) 
 ```
 
-### z-standardize
+## z-standardize
 
 prereg: "... and both attachment anxiety and avoidance as predictors, which will be z-standardized."
 
@@ -647,7 +650,7 @@ df_atta_rq1 <- df_atta_rq1 %>%
     .names = "{.col}_z"))
 ```
 
-### Keep relevant variables
+## Keep relevant variables
 
 ```{r}
 #| echo: true
@@ -655,7 +658,6 @@ df_atta_rq1 <- df_atta_rq1 %>%
 #| output: true
 #| cache: false
 
-# Z-standardize attachment variables (for RQ1 logistic analyses)
 df_atta_rq1 <- df_atta_rq1 %>%
   select(pid, 
          single_consist, single_later_partn, 

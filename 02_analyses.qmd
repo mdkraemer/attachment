@@ -24,6 +24,9 @@ bibliography:
 #  - document_citations.bib
   - grateful-refs.bib
 csl: apa.csl
+params:
+  run_models: false    # on/off toggle for running the model fitting loops
+  run_expensive: false # this is for manually "skipping" time-costly computations of model fit
 ---
 
 Preregistration link: https://osf.io/2udxh/overview?view_only=ee21adb66c6e48a39b3bc53e9fae919b
@@ -119,7 +122,7 @@ Forgot to z-standardize age:
 #| output: false
 #| cache: false
 
-# here, I'm using each person's first obs for calculating M/SD
+# here, I'm using all persons' first obs for calculating M/SD
 age_m <- df_atta %>% group_by(pid) %>% slice_head(n=1) %>% ungroup() %>% 
   summarise(age_m = mean(age_base, na.rm=T)) %>% pull(age_m)
 age_sd <- df_atta %>% group_by(pid) %>% slice_head(n=1) %>% ungroup() %>% 
@@ -133,7 +136,7 @@ Create wide format data for lavaan:
 ```{r}
 #| echo: true
 #| warning: false
-#| output: false
+#| output: true
 #| cache: false
 
 table(df_atta$time_month_rd)
@@ -175,6 +178,29 @@ df_atta <- df_atta %>%
                             labels = c("Consistently single people", "Consistently partnered people", 
                                        "Intermittently partnered people"), ordered = TRUE)) %>%
   select(-grp)
+
+### create outcome-specific missingness indicators:
+# if a person has missings in an outcome in *all* waves, they should be dropped later 
+# in the respective analysis (not treated by FIML), which will be done through these indicators
+outcome_vars_missi <- c(outcomes$short, "swb")
+
+# we're doing this for the first 30 time points / months which matches 
+# our later confirmatory
+times_30 <- sprintf("%02d", 0:29)
+# loop through all outcomes
+for (outcome in outcome_vars_missi) {
+  wave_vars <- paste0(outcome, "_t", times_30)
+  df_atta_wide[[paste0(outcome, "_missi")]] <-
+    as.integer(rowSums(is.na(df_atta_wide[, wave_vars])) == 30)
+}
+# I checked: these missingness indicators are relevant for friend- (n=1), mother- (n=374), and father-specific attachment (n=623) variables (same for avoidance and anxiety)
+
+# no additional missings in life satisfaction
+table(df_atta_wide$swb_missi, useNA = "always")
+df_atta_wide <- df_atta_wide %>% select(-swb_missi) # dont need this
+
+# for later robustness check, we're also doing a 24 months maximum
+# -> I checked and these missingness indicators are exactly the same for 24 months (not needed)
 ```
 
 Build group-specific data frames
@@ -211,7 +237,7 @@ df_atta_wide_single_partn_i <- bind_rows(df_atta_wide_single_c, df_atta_wide_par
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 
 # sample descriptives
 df_atta_rq1 %>% 
@@ -232,7 +258,7 @@ df_atta_rq1 %>%
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-summary: "Show the code"
 #| code-fold: true
 
@@ -287,7 +313,7 @@ education_table_by_group %>% kable(digits = 2)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-summary: "Show the code"
 #| code-fold: true
 
@@ -314,7 +340,7 @@ religion_table_by_group %>% kable(digits = 2)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-summary: "Show the code"
 #| code-fold: true
 
@@ -351,7 +377,7 @@ politics_table_by_group %>% kable(digits = 2)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 
 # sample descriptives - total
 df_atta %>% 
@@ -372,6 +398,45 @@ df_atta %>%
 df_atta %>% 
   group_by(pid) %>% slice_head(n=1) %>% ungroup() %>% 
   group_by(group_fct) %>% 
+  summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
+            m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
+```
+
+Differential missingness for some of the attachment domains: parent-specific questions were only asked 
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+# global attachment
+df_atta_wide %>% 
+  filter(avoi_glo_missi==0) %>% 
+  summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
+            m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
+
+# romantic attachment
+df_atta_wide %>% 
+  filter(avoi_rom_missi==0) %>% 
+  summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
+            m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
+
+# friend-specific attachment (1 person with all missing here)
+df_atta_wide %>% 
+  filter(avoi_fri_missi==0) %>% 
+  summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
+            m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
+
+# mother-specific attachment
+df_atta_wide %>% 
+  filter(avoi_mot_missi==0) %>% 
+  summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
+            m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
+
+# father-specific attachment
+df_atta_wide %>% 
+  filter(avoi_fat_missi==0) %>% 
   summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
             m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
 ```
@@ -609,7 +674,7 @@ Prepare df:
 #| code-fold: true
 #| code-summary: "Show the code"
 
-df_distr_plot_avoi <- df_atta %>% 
+df_distr_plot_avoi_1_5 <- df_atta %>% 
   filter(time_month_rd %in% c(1:5)) %>% 
   rename(wave = time_month_rd) %>% 
   select(wave, all_of(avoi_short), swb) %>% 
@@ -618,11 +683,47 @@ df_distr_plot_avoi <- df_atta %>%
     values_to = "value") %>% 
   mutate(
     variable = factor(variable, levels = c(avoi_short, "swb"), labels = c(avoi_maj, "Life Satisfaction")), # relabel
-    wave = factor(wave, levels = c(1:5), labels = c("M1", "M2", "M3", "M4", "M5"))
+    wave = factor(wave, levels = c(1:5), labels = paste0("M", c(1:5)))
+  )
+
+df_distr_plot_avoi_6_10 <- df_atta %>% 
+  filter(time_month_rd %in% c(6:10)) %>% 
+  rename(wave = time_month_rd) %>% 
+  select(wave, all_of(avoi_short), swb) %>% 
+  pivot_longer(cols = c(avoi_short, "swb"),
+    names_to = "variable",
+    values_to = "value") %>% 
+  mutate(
+    variable = factor(variable, levels = c(avoi_short, "swb"), labels = c(avoi_maj, "Life Satisfaction")), # relabel
+    wave = factor(wave, levels = c(6:10), labels = paste0("M", c(6:10)))
+  )
+
+df_distr_plot_avoi_11_15 <- df_atta %>% 
+  filter(time_month_rd %in% c(11:15)) %>% 
+  rename(wave = time_month_rd) %>% 
+  select(wave, all_of(avoi_short), swb) %>% 
+  pivot_longer(cols = c(avoi_short, "swb"),
+    names_to = "variable",
+    values_to = "value") %>% 
+  mutate(
+    variable = factor(variable, levels = c(avoi_short, "swb"), labels = c(avoi_maj, "Life Satisfaction")), # relabel
+    wave = factor(wave, levels = c(11:15), labels = paste0("M", c(11:15)))
+  )
+
+df_distr_plot_avoi_16_20 <- df_atta %>% 
+  filter(time_month_rd %in% c(16:20)) %>% 
+  rename(wave = time_month_rd) %>% 
+  select(wave, all_of(avoi_short), swb) %>% 
+  pivot_longer(cols = c(avoi_short, "swb"),
+    names_to = "variable",
+    values_to = "value") %>% 
+  mutate(
+    variable = factor(variable, levels = c(avoi_short, "swb"), labels = c(avoi_maj, "Life Satisfaction")), # relabel
+    wave = factor(wave, levels = c(16:20), paste0("M", c(16:20)))
   )
 ```
 
-Plot distributions across time: 
+Plot distributions across time: months 1-5
 ```{r}
 #| echo: true
 #| fig-width: 7
@@ -632,7 +733,7 @@ Plot distributions across time:
 #| cache: true
 #| warning: false
 
-ggplot(df_distr_plot_avoi %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+ggplot(df_distr_plot_avoi_1_5 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
   geom_boxplot(fill = NA) + 
   geom_violin(fill = NA) + 
   # Add the mean
@@ -645,12 +746,96 @@ ggplot(df_distr_plot_avoi %>% filter(!is.na(value)), aes(x = wave, y = value, fi
     fill = "yellow"             # fill color of the diamond
   ) +
   facet_wrap(~variable, scales = "free_y", ncol=2) +
-  labs(x = "Month", y = "Score", title = "Distributions") +
+  labs(x = "Month", y = "Score", title = "Distributions (months 1-5)") +
   theme_bw() +
   theme(legend.position = "none")
 ```
 
 Yellow diamonds represent the sample means. Bars of boxplot represent the median.  
+
+Plot distributions across time: months 6-10  
+```{r}
+#| echo: true
+#| fig-width: 7
+#| fig-height: 9
+#| code-fold: true
+#| code-summary: "Show the code"
+#| cache: true
+#| warning: false
+
+ggplot(df_distr_plot_avoi_6_10 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+  geom_boxplot(fill = NA) + 
+  geom_violin(fill = NA) + 
+  # Add the mean
+  stat_summary(
+    fun = mean,                 # calculate mean
+    geom = "point",             # draw as points
+    shape = 23,                 # filled diamond
+    size = 3,                   # point size
+    color = "black",            # border color
+    fill = "yellow"             # fill color of the diamond
+  ) +
+  facet_wrap(~variable, scales = "free_y", ncol=2) +
+  labs(x = "Month", y = "Score", title = "Distributions (months 6-10)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+Plot distributions across time: months 11-15
+```{r}
+#| echo: true
+#| fig-width: 7
+#| fig-height: 9
+#| code-fold: true
+#| code-summary: "Show the code"
+#| cache: true
+#| warning: false
+
+ggplot(df_distr_plot_avoi_11_15 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+  geom_boxplot(fill = NA) + 
+  geom_violin(fill = NA) + 
+  # Add the mean
+  stat_summary(
+    fun = mean,                 # calculate mean
+    geom = "point",             # draw as points
+    shape = 23,                 # filled diamond
+    size = 3,                   # point size
+    color = "black",            # border color
+    fill = "yellow"             # fill color of the diamond
+  ) +
+  facet_wrap(~variable, scales = "free_y", ncol=2) +
+  labs(x = "Month", y = "Score", title = "Distributions (months 11-15)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+Plot distributions across time: months 16-20
+```{r}
+#| echo: true
+#| fig-width: 7
+#| fig-height: 9
+#| code-fold: true
+#| code-summary: "Show the code"
+#| cache: true
+#| warning: false
+
+ggplot(df_distr_plot_avoi_16_20 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+  geom_boxplot(fill = NA) + 
+  geom_violin(fill = NA) + 
+  # Add the mean
+  stat_summary(
+    fun = mean,                 # calculate mean
+    geom = "point",             # draw as points
+    shape = 23,                 # filled diamond
+    size = 3,                   # point size
+    color = "black",            # border color
+    fill = "yellow"             # fill color of the diamond
+  ) +
+  facet_wrap(~variable, scales = "free_y", ncol=2) +
+  labs(x = "Month", y = "Score", title = "Distributions (months 16-20)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
 
 #### Anxiety
 
@@ -663,7 +848,7 @@ Prepare df:
 #| code-fold: true
 #| code-summary: "Show the code"
 
-df_distr_plot_anxi <- df_atta %>% 
+df_distr_plot_anxi_1_5 <- df_atta %>% 
   filter(time_month_rd %in% c(1:5)) %>% 
   rename(wave = time_month_rd) %>% 
   select(wave, all_of(anxi_short), swb) %>% 
@@ -672,11 +857,48 @@ df_distr_plot_anxi <- df_atta %>%
     values_to = "value") %>% 
   mutate(
     variable = factor(variable, levels = c(anxi_short, "swb"), labels = c(anxi_maj, "Life Satisfaction")), # relabel
-    wave = factor(wave, levels = c(1:5), labels = c("M1", "M2", "M3", "M4", "M5"))
+    wave = factor(wave, levels = c(1:5), labels = paste0("M", c(1:5)))
+  )
+
+df_distr_plot_anxi_6_10 <- df_atta %>% 
+  filter(time_month_rd %in% c(6:10)) %>% 
+  rename(wave = time_month_rd) %>% 
+  select(wave, all_of(anxi_short), swb) %>% 
+  pivot_longer(cols = c(anxi_short, "swb"),
+    names_to = "variable",
+    values_to = "value") %>% 
+  mutate(
+    variable = factor(variable, levels = c(anxi_short, "swb"), labels = c(anxi_maj, "Life Satisfaction")), # relabel
+    wave = factor(wave, levels = c(6:10), labels = paste0("M", c(6:10)))
+  )
+
+df_distr_plot_anxi_11_15 <- df_atta %>% 
+  filter(time_month_rd %in% c(11:15)) %>% 
+  rename(wave = time_month_rd) %>% 
+  select(wave, all_of(anxi_short), swb) %>% 
+  pivot_longer(cols = c(anxi_short, "swb"),
+    names_to = "variable",
+    values_to = "value") %>% 
+  mutate(
+    variable = factor(variable, levels = c(anxi_short, "swb"), labels = c(anxi_maj, "Life Satisfaction")), # relabel
+    wave = factor(wave, levels = c(11:15), labels = paste0("M", c(11:15)))
+  )
+
+df_distr_plot_anxi_16_20 <- df_atta %>% 
+  filter(time_month_rd %in% c(16:20)) %>% 
+  rename(wave = time_month_rd) %>% 
+  select(wave, all_of(anxi_short), swb) %>% 
+  pivot_longer(cols = c(anxi_short, "swb"),
+    names_to = "variable",
+    values_to = "value") %>% 
+  mutate(
+    variable = factor(variable, levels = c(anxi_short, "swb"), labels = c(anxi_maj, "Life Satisfaction")), # relabel
+    wave = factor(wave, levels = c(16:20), paste0("M", c(16:20)))
   )
 ```
 
-Plot distributions across time: 
+
+Plot distributions across time: months 1-5
 ```{r}
 #| echo: true
 #| fig-width: 7
@@ -686,7 +908,7 @@ Plot distributions across time:
 #| cache: true
 #| warning: false
 
-ggplot(df_distr_plot_anxi %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+ggplot(df_distr_plot_anxi_1_5 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
   geom_boxplot(fill = NA) + 
   geom_violin(fill = NA) + 
   # Add the mean
@@ -699,12 +921,96 @@ ggplot(df_distr_plot_anxi %>% filter(!is.na(value)), aes(x = wave, y = value, fi
     fill = "yellow"             # fill color of the diamond
   ) +
   facet_wrap(~variable, scales = "free_y", ncol=2) +
-  labs(x = "Month", y = "Score", title = "Distributions") +
+  labs(x = "Month", y = "Score", title = "Distributions (months 1-5)") +
   theme_bw() +
   theme(legend.position = "none")
 ```
 
 Yellow diamonds represent the sample means. Bars of boxplot represent the median.  
+
+Plot distributions across time: months 6-10  
+```{r}
+#| echo: true
+#| fig-width: 7
+#| fig-height: 9
+#| code-fold: true
+#| code-summary: "Show the code"
+#| cache: true
+#| warning: false
+
+ggplot(df_distr_plot_anxi_6_10 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+  geom_boxplot(fill = NA) + 
+  geom_violin(fill = NA) + 
+  # Add the mean
+  stat_summary(
+    fun = mean,                 # calculate mean
+    geom = "point",             # draw as points
+    shape = 23,                 # filled diamond
+    size = 3,                   # point size
+    color = "black",            # border color
+    fill = "yellow"             # fill color of the diamond
+  ) +
+  facet_wrap(~variable, scales = "free_y", ncol=2) +
+  labs(x = "Month", y = "Score", title = "Distributions (months 6-10)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+Plot distributions across time: months 11-15
+```{r}
+#| echo: true
+#| fig-width: 7
+#| fig-height: 9
+#| code-fold: true
+#| code-summary: "Show the code"
+#| cache: true
+#| warning: false
+
+ggplot(df_distr_plot_anxi_11_15 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+  geom_boxplot(fill = NA) + 
+  geom_violin(fill = NA) + 
+  # Add the mean
+  stat_summary(
+    fun = mean,                 # calculate mean
+    geom = "point",             # draw as points
+    shape = 23,                 # filled diamond
+    size = 3,                   # point size
+    color = "black",            # border color
+    fill = "yellow"             # fill color of the diamond
+  ) +
+  facet_wrap(~variable, scales = "free_y", ncol=2) +
+  labs(x = "Month", y = "Score", title = "Distributions (months 11-15)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+Plot distributions across time: months 16-20
+```{r}
+#| echo: true
+#| fig-width: 7
+#| fig-height: 9
+#| code-fold: true
+#| code-summary: "Show the code"
+#| cache: true
+#| warning: false
+
+ggplot(df_distr_plot_anxi_16_20 %>% filter(!is.na(value)), aes(x = wave, y = value, fill = wave, color = wave)) +
+  geom_boxplot(fill = NA) + 
+  geom_violin(fill = NA) + 
+  # Add the mean
+  stat_summary(
+    fun = mean,                 # calculate mean
+    geom = "point",             # draw as points
+    shape = 23,                 # filled diamond
+    size = 3,                   # point size
+    color = "black",            # border color
+    fill = "yellow"             # fill color of the diamond
+  ) +
+  facet_wrap(~variable, scales = "free_y", ncol=2) +
+  labs(x = "Month", y = "Score", title = "Distributions (months 16-20)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
 
 ### Descriptives over time
 
@@ -713,7 +1019,7 @@ Show means/SD over time: avoidance vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -737,7 +1043,7 @@ Show means/SD over time: anxiety vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -765,7 +1071,7 @@ Show means/SD over time: avoidance vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -790,7 +1096,7 @@ Show means/SD over time: anxiety vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -817,7 +1123,7 @@ Show means/SD over time: avoidance vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -842,7 +1148,7 @@ Show means/SD over time: anxiety vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -869,7 +1175,7 @@ Show means/SD over time: avoidance vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -894,7 +1200,7 @@ Show means/SD over time: anxiety vars
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1073,7 +1379,7 @@ Create df:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 
 df_completion <- df_atta %>%
   group_by(pid) %>%
@@ -1098,7 +1404,7 @@ Run models (12 months):
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1139,7 +1445,7 @@ Show results (12 months):
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1187,7 +1493,7 @@ Run models (24 months):
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1220,7 +1526,7 @@ Show results (24 months):
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1274,7 +1580,7 @@ Create df:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1295,7 +1601,7 @@ Run models:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1327,7 +1633,7 @@ Merge and show as table:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1429,6 +1735,10 @@ ggplot(missing_summary, aes(x = month, y = prop_missing)) +
   theme_minimal(base_size = 14)
 ```
 
+::: {.callout-note appearance="minimal"}
+This proportion doesn't increase consistently because this reflects the underlying time rounded to the next full month. Some participants delayed their responses and did not fully follow the once-per-month 24-month schedule. 
+:::
+
 # Confirmatory analyses
 
 ## RQ1: Prospective Selection Effects
@@ -1441,7 +1751,7 @@ Logistic regression = pure between-person comparison
 
 ```{r selection-logistic-glo}
 #| echo: true
-#| cache: true
+#| cache: false
 #| warning: false
 
 formula_sel_glo <- as.formula(
@@ -1458,7 +1768,7 @@ summary(sel_glo)
 
 ```{r selection-logistic-rom}
 #| echo: true
-#| cache: true
+#| cache: false
 #| warning: false
 
 formula_sel_rom <- as.formula(
@@ -1475,7 +1785,7 @@ summary(sel_rom)
 
 ```{r selection-logistic-fri}
 #| echo: true
-#| cache: true
+#| cache: false
 #| warning: false
 
 formula_sel_fri <- as.formula(
@@ -1492,7 +1802,7 @@ summary(sel_fri)
 
 ```{r selection-logistic-mot}
 #| echo: true
-#| cache: true
+#| cache: false
 #| warning: false
 
 formula_sel_mot <- as.formula(
@@ -1509,7 +1819,7 @@ summary(sel_mot)
 
 ```{r selection-logistic-fat}
 #| echo: true
-#| cache: true
+#| cache: false
 #| warning: false
 
 formula_sel_fat <- as.formula(
@@ -1535,11 +1845,11 @@ Gather estimates:
 #| code-summary: "Show the code"
 
 df_summa_sel_logist <- bind_rows(
-  broom::tidy(sel_glo, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Global"),
-  broom::tidy(sel_rom, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Romantic"),
-  broom::tidy(sel_fri, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Best Friend"),
-  broom::tidy(sel_mot, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Mother"),
-  broom::tidy(sel_fat, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Father"))
+  broom::tidy(sel_glo, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Global", n_obs = nobs(sel_glo)),
+  broom::tidy(sel_rom, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Romantic", n_obs = nobs(sel_rom)),
+  broom::tidy(sel_fri, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Best Friend", n_obs = nobs(sel_fri)),
+  broom::tidy(sel_mot, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Mother", n_obs = nobs(sel_mot)),
+  broom::tidy(sel_fat, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Father", , n_obs = nobs(sel_fat)))
 
 df_summa_sel_logist <- df_summa_sel_logist %>% 
   mutate(domain_fct = factor(domain, 
@@ -1566,7 +1876,7 @@ df_summa_sel_logist %>%
       grepl("anxi", term) ~ "Anxiety"),
     `OR (95% CI)` = sprintf("%.2f (%.2f, %.2f)", OR, CI_low, CI_high),
     p = format.pval(p.value, digits = 3, eps = .001)) %>%
-  select(domain, pred, `OR (95% CI)`, p) %>%
+  select(domain, pred, `OR (95% CI)`, p, n_obs) %>%
   arrange(factor(domain, levels = c("Global", "Romantic", "Best Friend", "Mother", "Father")),
           pred) %>%
   kable()
@@ -1580,7 +1890,7 @@ Create plots for manuscript: start with extracting the parameters
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -1597,7 +1907,7 @@ Create and save plot:
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
+#| output: false
 #| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
@@ -1654,7 +1964,7 @@ plot_rq1_or
 ```
 
 ::: {.callout-note appearance="minimal"}
-Hypothesis confirmed for global and romantic avoidance, but n.s. for anxiety (also the case in single-predictor models): With higher global and romantic attachment avoidance, single people (at baseline) were more likely to remain single consistently throughout the observation period.  
+Hypothesis confirmed for global and romantic avoidance, but n.s. for anxiety (which is also the case in single-predictor models): With higher global and romantic attachment avoidance, single people (at baseline) were more likely to remain single consistently throughout the observation period.  
 In addition:  
 - With higher friend-specific avoidance and anxiety, people were more likely to remain single.  
 - With higher mother-specific anxiety, people were more likely to remain single (but n.s. for avoidance).  
@@ -1666,7 +1976,7 @@ From prereg: "To trace mean-level change in attachment across time, we will run 
 
 "The linear growth variable will be time at assessment (i.e., months centered at study entry). We run separate models for attachment anxiety and avoidance and for global attachment and each domain (2 x 5 attachment outcomes for each group comparison)."  
 
-I'm doing the main models for all attachment domains in this section even though we only investigate global and romantic as confirmatory and the rest as exploratory. However, the entirely exploratory comparison of consistently single people and intermittently partnered individuals will follow below in the next section.  
+I'm doing the main models for all attachment domains in this section even though we only investigate global and romantic as confirmatory and the rest as exploratory. However, the entirely exploratory comparison of consistently single people and intermittently partnered individuals will follow below in the next section (5).  
 
 ### Example model
 
@@ -1740,22 +2050,11 @@ model_rq2_avoi_glo_example <- stringr::str_replace_all(rq2_template, "outcome", 
 fit_rq2_avoi_glo_example <- lavaan::growth(model_rq2_avoi_glo_example, data = df_atta_wide_single_c, 
                                            missing = "fiml", verbose = FALSE)
 summary(fit_rq2_avoi_glo_example, fit.measures = TRUE, standardized = TRUE, ci = FALSE)
-
-fit_rq2_avoi_glo_partn_c_example <- lavaan::growth(model_rq2_avoi_glo_example, data = df_atta_wide_partn_c, 
-                                           missing = "fiml", verbose = FALSE)
-summary(fit_rq2_avoi_glo_partn_c_example, fit.measures = TRUE, standardized = TRUE, ci = FALSE)
 ```
 
 ::: {.callout-note appearance="minimal"}
-Global avoidance decreases over time in both groups, with slightly more pronounced decreases in single people. No significant age moderation (but good that we control for age differences).  
-
-No support for our hypothesis (on the descriptive level) - next, we test these slope differences formally.  
-:::
-
-
-::: {.callout-note appearance="minimal"}
 A few warning messages appear:  
-- 1 case is dropped because of a missing value in age. THis is no problem -> N = 592 now. (as an exogenous variable, missingsness in age is not handled with FIML)  
+- 1 case is dropped because of a missing value in age. This is no problem -> N = 592 now. (as an exogenous variable, missingsness in age is not handled with FIML)  
 - Low coverage at later time points: this was to be expected, with increased dropout and up to 30 months of data (e.g., 84% missingness at t20, and 92% at t29). I think it's no big issue here, given that the model still converged, produced no implausible estimates, and resulted in decent fit indices (at least in the traditional ones; some of the "robust" ones could not be estimated properly...)  
 - EM estimated variance-covariance matrix (Sigma) is (near) singular: also not surprising given the data structure and missingness -> lavInspect(fit_rq2_avoi_glo_example, "post.check") indicates TRUE, meaning that the final fitted model covariance structure is admissible  
 - In pchisq(x2, df = df, ncp = ncp) : NaNs produced -> This may relate to some of the (robust) chi-square based fit statistics.  
@@ -1764,9 +2063,29 @@ A few warning messages appear:
 --> Below, we provide more details on all models in "Model fit" and "Model diagnostics".  
 :::
 
+Now show results for partnered: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
+
+fit_rq2_avoi_glo_partn_c_example <- lavaan::growth(model_rq2_avoi_glo_example, data = df_atta_wide_partn_c, 
+                                           missing = "fiml", verbose = FALSE)
+summary(fit_rq2_avoi_glo_partn_c_example, fit.measures = TRUE, standardized = TRUE, ci = FALSE)
+```
+
+::: {.callout-note appearance="minimal"}
+Quick summary of main results:  
+
+Global avoidance decreases over time in both groups, with slightly more pronounced decreases in single people. No significant age moderation (but good that we control for age differences).  
+
+No strong support for our hypothesis of differential change (on the descriptive level) - next, we test these slope differences formally in a multi-group model.  
+:::
+
 #### Multi-group model
 
-Extend to multi-group model to compare single (_s) vs. partnered people (_p)  
+Extend to multi-group model to compare single ("_s") vs. partnered people ("_p")  
 
 Freely estimated group differences by default; group-specific age effects; group-specific intercept/slope means; group-specific variances; group-specific residual variances; same time metric across groups (0 -> 1 scaling over 29 months)  
 
@@ -1826,22 +2145,33 @@ fit_rq2_mg_avoi_glo_example <- lavaan::growth(model_rq2_mg_avoi_glo_example,
                                       data = df_atta_wide_single_partn_c %>% arrange(group_fct),
                                       group = "group_fct",
                                       missing = "fiml", verbose = FALSE)
+```
+
+::: {.callout-note appearance="minimal"}
+Similar warning messages as above. See my explanation there.  
+:::
+
+Show results: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
 
 summary(fit_rq2_mg_avoi_glo_example, fit.measures = TRUE, standardized = TRUE, ci = FALSE)
 ```
 
 ::: {.callout-note appearance="minimal"}
 Descriptively, the global avoidance decreases are somewhat more pronounced in single people compared to partnered people. Single people also start with higher avoidance at baseline. The difference in slopes is not sufficient, though, to "offset" this initial intercept difference. No significant age moderation in either group.  
-
-Similar warning messages as above. See my explanation there.  
 :::
 
-Formal test of group differences: "Likelihood ratio tests will indicate whether a model constraining the latent slope parameters to be equal across groups fits the data better compared to a model freely estimating them."  
+Formal test of group differences: Likelihood ratio tests to assess whether constraining the latent slope parameters to be equal across groups significantly worsens model fit relative to a model with freely estimated slopes.  
 
+(same warning messages here as above - I suppress them here)
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
+#| output: false
 #| cache: true
 
 # latent growth curve model: multi-group 
@@ -1859,43 +2189,57 @@ fit_rq2_mg_avoi_glo_constr <- lavaan::growth(model_rq2_mg_avoi_glo_constr,
                                                   group = "group_fct",
                                                   missing = "fiml",
                                                   verbose = FALSE)
+```
+
+LRT: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
 
 anova(fit_rq2_mg_avoi_glo_example, fit_rq2_mg_avoi_glo_constr)
 ```
 
 ::: {.callout-note appearance="minimal"}
-No significant group differences in the slopes according to LRT.
+No significant group differences in the slopes according to LRT: Constraining the latent slopes to be equal across groups did not significantly worsen model fit, providing no evidence that the groups differed in their rates of attachment change.
 :::
 
-### Template loop
+### Template loop & extraction
 
 Run loop over all 5 X 2 outcomes  
 
-(Here, I suppress lavaan warnings in the html output, but they are pretty much the same ones as shown above for the example model. Below, I go into model diagnostics more systematically.)  
+(Here in the loop I suppress lavaan warnings in the html output, but they are pretty much the same ones as shown above for the example model. In the sections below, I go into model fit and diagnostics more systematically.)  
 
 ```{r rq2-loop}
 #| echo: true
 #| warning: false
 #| output: false
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_models) { # we can toggle this on/off in the YAML heading
+  
 # loop across all attachment outcomes
 for (i in 1:length(outcomes$short)) {
 #for (i in 1:2) {
   print(paste0("Running outcome: ", outcomes$maj[i]))
+  
+  # Outcome-specific missingness indicator -> added this mostly for parent-specific attachment
+  missi_var <- paste0(outcomes$short[i], "_missi")
+  
   # Step 1: fill single-group model template (2x, 1 for single, 1 for partnered)
   print("-> Step 1")
   model_rq2 <- stringr::str_replace_all(rq2_template, "outcome", outcomes$short[i])
   fit_rq2 <- lavaan::growth(model_rq2,
-                            data = df_atta_wide_single_c,
+                            data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
                             missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i])), fit_rq2))
   saveRDS(fit_rq2, file = paste0("models/fit_rq2_", outcomes$short[i], ".rds"))
   
   fit_rq2_partn_c <- lavaan::growth(model_rq2,
-                            data = df_atta_wide_partn_c,
+                            data = df_atta_wide_partn_c %>% filter(.data[[missi_var]] == 0),
                             missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_c")), fit_rq2_partn_c))
   saveRDS(fit_rq2_partn_c, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_c.rds"))
@@ -1904,7 +2248,8 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 2")
   model_rq2_multi <- stringr::str_replace_all(rq2_template_multi, "outcome", outcomes$short[i])
   fit_rq2_multi <- lavaan::growth(model_rq2_multi,
-                                  data = df_atta_wide_single_partn_c %>% arrange(group_fct),
+                                  data = df_atta_wide_single_partn_c  %>% filter(.data[[missi_var]] == 0) %>%
+                                    arrange(group_fct),
                                   group = "group_fct",
                                   missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i])), fit_rq2_multi))
@@ -1914,7 +2259,8 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 3")
   model_rq2_multi_constr <- stringr::str_replace_all(rq2_template_multi_constr, "outcome", outcomes$short[i])
   fit_rq2_multi_constr <- lavaan::growth(model_rq2_multi_constr,
-                                         data = df_atta_wide_single_partn_c %>% arrange(group_fct),
+                                         data = df_atta_wide_single_partn_c  %>% filter(.data[[missi_var]] == 0) %>%
+                                           arrange(group_fct),
                                          group = "group_fct",
                                          missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_constr")), fit_rq2_multi_constr))
@@ -1924,19 +2270,31 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 4")
   lrt <- anova(fit_rq2_multi, fit_rq2_multi_constr)
   eval(call("<-", as.name(paste0("lrt_rq2_mg_", outcomes$short[i])), lrt))
+  saveRDS(lrt, file = paste0("models/lrt_rq2_mg_", outcomes$short[i], ".rds"))
+}
 }
 ```
 
-Create summary table of all effects of interest:  
+Create summary table of all effects of interest by using a parameter extraction function with broom::tidy():  
 
-First, parameter extraction  
-```{r}
+```{r rq2-load-extract}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+# Load the saved models when run_models = FALSE
+if (!params$run_models) {
+  for (x in outcomes$short) {
+    assign(paste0("fit_rq2_", x), readRDS(paste0("models/fit_rq2_", x, ".rds")))
+    assign(paste0("fit_rq2_", x, "_partn_c"), readRDS(paste0("models/fit_rq2_", x, "_partn_c.rds")))
+    assign(paste0("fit_rq2_mg_", x), readRDS(paste0("models/fit_rq2_mg_", x, ".rds")))
+    assign(paste0("fit_rq2_mg_", x, "_constr"), readRDS(paste0("models/fit_rq2_mg_", x, "_constr.rds")))
+    assign(paste0("lrt_rq2_mg_", x), readRDS(paste0("models/lrt_rq2_mg_", x, ".rds")))
+  }
+}
 
 ### single-group lavaan models:
 # custom function for parameter extraction
@@ -2041,15 +2399,19 @@ rq2_summary_mg <- rq2_summary_mg %>%
 
 ### Model fit
 
-Fit statistics: single-group models
-```{r}
+Fit statistics: single-group models  
+-> These fit indices are very computationally expensive. I put them in a conditional chunk and load them as an RDS object in the next chunk.  
+
+```{r calc-fit-rq2}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_expensive) { # only run when we allow this in YAML heading
+  
 # model fit statistics: single-group models
 rq2_fit_single <- outcomes$short %>% 
   purrr::map_dfr(function(x) {
@@ -2068,19 +2430,35 @@ rq2_fit_single <- outcomes$short %>%
                                   "Intermittently partnered"),
                        ordered = TRUE))
 
+# save externally:
+saveRDS(rq2_fit_single, "model_fit/rq2_fit_single.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq2}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq2_fit_single <- readRDS("model_fit/rq2_fit_single.rds")
+
 rq2_fit_single %>% select(-outc) %>% 
   select(outc_fct, group_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 Fit statistics: multi-group models (of consistently single & consistently partnered)
-```{r}
+```{r calc-fit-rq2-mg}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+if (params$run_expensive) { # only run when we allow this in YAML heading
 
 # model fit statistics: multi-group models
 rq2_fit_mg <- outcomes$short %>% 
@@ -2091,14 +2469,29 @@ rq2_fit_mg <- outcomes$short %>%
   select(outc, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
   mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
 
+# save externally:
+saveRDS(rq2_fit_mg, "model_fit/rq2_fit_mg.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq2-mg}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq2_fit_mg <- readRDS("model_fit/rq2_fit_mg.rds")
+
 rq2_fit_mg %>% 
-  select(-outc) %>% 
-  select(outc_fct, everything()) %>% 
+  select(-outc) %>% select(outc_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 ::: {.callout-note appearance="minimal"}
-Decent fit across all models. SRMR is somewhat high but this is a relatively highly parameterized longitudinal SEM (30 time points) where this is to be expected. In addition, we estimate manifest models here and don't focus on latent constructs.  
+Slightly reduced sample sizes for the mother/father attachment models. These question were only asked if the parent was still alive.  
+
+Overall, RMSEA indicates good fit, while CFI is mostly acceptable but somewhat lower in some models. SRMR is elevated for several outcomes, particularly Best Friend attachment. Given the highly parameterized 30-wave longitudinal models and use of manifest scale scores, fit indices are treated as more descriptive and are not the primary focus here.  
 :::
 
 ### Model diagnostics
@@ -2144,7 +2537,7 @@ rq2_diagnostics %>% kable(digits = 3)
 ```
 
 ::: {.callout-note appearance="minimal"}
-Nothing suspicious in these diagnostics.  
+These diagnostics all look good.  
 :::
 
 #### Multi-group models
@@ -2192,7 +2585,7 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1):
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2210,7 +2603,7 @@ rq2_table_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Some descriptive slope differences across groups, for example, Avoidance (Romantic) and Avoidance (Mother). We test these diffs below for significance.
+Descriptively, there are some slope differences across groups, for example, Avoidance (Romantic) and Avoidance (Mother). We test these diffs below for significance.
 :::
 
 Latent intercept-slope covariance: (cis) 
@@ -2219,7 +2612,7 @@ Latent intercept-slope covariance: (cis)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2246,7 +2639,7 @@ Variances of the latent intercept and slope factors: (vi) & (vs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2254,7 +2647,7 @@ rq2_table_v <- rq2_summary_single %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq2_table_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2264,7 +2657,7 @@ rq2_table_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Substantial heterogeneity in change ("vs"). This heterogeneity is especially pronounced for Avoidance: Best Friend, Avoidance: Mother, Avoidance: Father, Anxiety: Global, Anxiety: Romantic, and Anxiety: Best Friend. 
+Substantial heterogeneity in change ("vs"). This heterogeneity is especially pronounced for Avoidance: Best Friend, Avoidance: Mother, Avoidance: Father, Anxiety: Global, Anxiety: Romantic, and Anxiety: Best Friend. Some group differences but nothing systematic, as far as I can see.
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)
@@ -2273,7 +2666,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2291,8 +2684,8 @@ rq2_table_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Not very consistent evidence for age moderation but a few significant effects emerge:  
-- Anxiety: Global and Anxiety: Romantic decreases in consistently partnered people are less pronounced with older age.  
+Rather inconsistent evidence for age moderation but a few significant effects emerge:  
+- Anxiety: Global and Anxiety: Romantic decreases (see slopes above...) in consistently partnered people are less pronounced with older age.  
 - Anxiety: Mother and Anxiety: Father decreases in consistently single people are more pronounced with older age.  
 :::
 
@@ -2306,7 +2699,7 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2326,7 +2719,7 @@ rq2_table_mg_a %>%
 ::: {.callout-note appearance="minimal"}
 Very similar slope estimates compared to the single-group models above.  
 - Only one domain was tested as significant in their slope group differences: Avoidance (Mother). Here, consistently single people decreases more strongly than partnered people.   
-- For Avoidance: Romantic it's relatively close (p = .067) but in the opposite direct as we expected. Over time, singles decreased more than partnered people in their romantic avoidance (... they also started out higher).  
+- For Avoidance: Romantic it's relatively close (*p* = .067) but in the opposite direction as we expected. Over time, singles decreased more than partnered people in their romantic avoidance (... they also started out higher).  
 :::
 
 Latent intercept-slope covariance: (cis)  
@@ -2337,7 +2730,7 @@ Latent intercept-slope covariance: (cis)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2366,7 +2759,7 @@ Variances of the latent intercept and slope factors: (vi) & (vs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2374,7 +2767,7 @@ rq2_table_mg_v <- rq2_summary_mg %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq2_table_mg_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -2395,7 +2788,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -2423,8 +2816,8 @@ Create plots for manuscript: start with extracting the parameters
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
-#| cache: true
+#| output: false
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -3158,7 +3551,7 @@ I'm first creating a template and show this with an example model of global avoi
 
 Specify model template, and show example model output:   
 
-("a" is generally for attachment in this code, and "w" for well-being = life satisfaction)  
+(Terminology: "a" is for attachment in the RQ3 code, and "w" for well-being = life satisfaction)  
 ```{r}
 #| echo: true
 #| warning: false
@@ -3243,40 +3636,57 @@ model_rq3_avoi_glo_example <- stringr::str_replace_all(rq3_template, "outcome", 
 fit_rq3_avoi_glo_example <- lavaan::growth(model_rq3_avoi_glo_example,
                                            data = df_atta_wide_single_c,
                                            missing = "fiml", verbose = FALSE)
+```
+
+::: {.callout-note appearance="minimal"}
+Same types of warning messages here as for RQ2 models. See model fit and model diagnostics sections below.
+:::
+
+Show results: 
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: true
 
 summary(fit_rq3_avoi_glo_example, fit.measures = TRUE, standardized = TRUE, ci = FALSE)
 ```
 
 ::: {.callout-note appearance="minimal"}
-Global avoidance decreases ...  
+Global avoidance decreases and life satisfaction increases. Significant (negative) co-development.    
 
-I also tried out an otherwise identical model without residual covariances but fit was worse, supporting the retention of the residual covariance structure. But mostly these residual covariances also make sense from a theoretical standpoint because they account for occasion-specific shared influences not captured by the latent trajectories.   
+I also tried out an otherwise identical model without residual covariances but fit was worse, supporting the retention of the residual covariance structure. These residual covariances also make sense from a theoretical standpoint because they account for occasion-specific shared influences not captured by the latent trajectories.    
 :::
 
-### Template loop
+### Template loop & extraction
 
 Run loop over all 5 X 2 outcomes  
 
-(Here, I suppress lavaan warnings in the html output, but they are very similar to the ones shown above for the example model. Below, I go into model diagnostics more systematically.)  
+(Here in the loop, I suppress lavaan warnings in the html output, but they are very similar to the ones shown above for the example model. Below, I go into model diagnostics more systematically.)   
 
 ```{r rq3-loop}
 #| echo: true
 #| warning: false
 #| output: false
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_models) {
+  
 # loop across all attachment outcomes
-for (i in 1:length(outcomes$short)) {
+for (i in 1:length(outcomes$short)) { # we can toggle this on/off in the YAML heading
   print(paste0("Running outcome: ", outcomes$maj[i]))
 
   # Fill bivariate LGCM template
   model_rq3 <- stringr::str_replace_all(rq3_template, "outcome", outcomes$short[i])
+  
+  # Outcome-specific missingness indicator -> added this mostly for parent-specific attachment
+  missi_var <- paste0(outcomes$short[i], "_missi")
 
   # Fit model in consistently single people
   fit_rq3 <- lavaan::growth(model_rq3,
-                            data = df_atta_wide_single_c,
+                            data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
                             missing = "fiml",
                             verbose = FALSE)
 
@@ -3284,16 +3694,25 @@ for (i in 1:length(outcomes$short)) {
   eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i])), fit_rq3))
   saveRDS(fit_rq3, file = paste0("models/fit_rq3_", outcomes$short[i], ".rds"))
 }
+}
 ```
 
 Create summary table of all effects of interest: parameter extraction  
-```{r}
+(... based on broom::tidy() giving unstandardized effects & SE / CI)  
+```{r rq3-load-extract}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+# Load saved models when run_models = FALSE
+if (!params$run_models) {
+  for (x in outcomes$short) {
+    assign(paste0("fit_rq3_", x), readRDS(paste0("models/fit_rq3_", x, ".rds")))
+  }
+}
 
 # custom function for parameter extraction from bivariate LGCMs
 extract_lav_rq3 <- function(fit_obj) {
@@ -3340,16 +3759,69 @@ rq3_summary <- rq3_summary %>%
                            labels = outcomes$maj, ordered = TRUE))
 ```
 
-### Model fit
+For the preregistered effects of interest, I use lavaan::standardizedSolution(). For the cross-construct latent growth-factor covariances, standardization yields correlations rather than covariances. The standardized estimates have their own SEs, CIs, and p-values, which can differ slightly from those of the corresponding unstandardized covariances. This matches the preregistration: “The main effects of interest are the cross-construct intercept-slope correlations and slope-slope correlations.”  
 
-Fit statistics: 
+The standardized effect size is always the same as the est_std / std.all one from broom::tidy(), though.  
+
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
-#| cache: true
+#| output: false
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+# Extract standardized slope-slope correlation and CI
+extract_rq3_cross_std <- function(fit_obj, name_obj) {
+  name_outc <- name_obj %>% 
+    stringr::str_remove("fit_rq3_") %>% 
+    stringr::str_remove("_partn_c$|_partn_i$")
+  
+  lavaan::standardizedSolution(fit_obj, ci = TRUE) %>% 
+    filter(label %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
+    mutate(outc = name_outc,
+           est = est.std,
+           ci_lo = ci.lower,
+           ci_hi = ci.upper) %>% 
+    select(outc, term = label, est, ci_lo, ci_hi, p_value = pvalue)
+}
+
+# Extract all RQ3 slope-slope correlations
+rq3_models <- c("fit_rq3_avoi_glo", "fit_rq3_avoi_rom",
+                "fit_rq3_avoi_fri", "fit_rq3_avoi_mot",
+                "fit_rq3_avoi_fat", "fit_rq3_anxi_glo",
+                "fit_rq3_anxi_rom", "fit_rq3_anxi_fri",
+                "fit_rq3_anxi_mot", "fit_rq3_anxi_fat")
+
+rq3_extracted_cross <- bind_rows(lapply(rq3_models, function(x) {
+  extract_rq3_cross_std(get(x), x)
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE)) %>% 
+  as_tibble() %>% 
+  arrange(outc_fct, term) %>% 
+  select(outc_fct, term, est, ci_lo, ci_hi, p_value, domain_fct, pred_fct)
+```
+
+### Model fit
+
+Fit statistics: single-group models  
+-> These fit indices are very computationally expensive. I put them in a conditional chunk and load them as an RDS object in the next chunk.  
+
+```{r calc-fit-rq3}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+if (params$run_expensive) { # only run when we allow this in YAML heading
 
 # model fit statistics: single-group models
 rq3_fit_single <- outcomes$short %>% 
@@ -3367,13 +3839,29 @@ rq3_fit_single <- outcomes$short %>%
                                   "Intermittently partnered"),
                        ordered = TRUE))
 
+# save externally:
+saveRDS(rq3_fit_single, "model_fit/rq3_fit_single.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq3}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq3_fit_single <- readRDS("model_fit/rq3_fit_single.rds")
+
 rq3_fit_single %>% select(-outc) %>% 
   select(outc_fct, group_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 ::: {.callout-note appearance="minimal"}
-Pretty similar across outcomes, with the exception of Avoidance: Best Friend. Here, the latent slope variance is considerably larger than in the global model. This means friend-avoidance has much more heterogeneous trajectories and a single linear slope will fit relatively poorly. Other than that, there is no indication for "technical" issues with this model or implausible estimates. Occasion-specific variation (in the residuals) is also quite large here. Another explanation could be nonlinear change. However, in the observed means, a linear slope looks like a very reasonable approximation of the trajectory (descriptively).   
+RMSEA looks good but CFI and SRMR are below conventional thresholds. Important to keep in mind that these models were specified primarily to model longitudinal change and covariation among manifest variables, rather than to establish a latent measurement model.  
+
+Fit is pretty similar across outcomes, with the exception of Avoidance: Best Friend. Here, the latent slope variance is considerably larger than in the global model. This means friend-avoidance has much more heterogeneous trajectories and a single linear slope will fit relatively poorly. Other than that, there is no indication for "technical" issues with this model or implausible estimates. Occasion-specific variation (in the residuals) is also quite large here. Another explanation could be nonlinear change. However, in the observed means, a linear slope looks like a reasonable approximation of the trajectory (descriptively).   
 :::
 
 ### Model diagnostics
@@ -3391,12 +3879,6 @@ Pretty similar across outcomes, with the exception of Avoidance: Best Friend. He
 #| code-summary: "Show the code"
 
 # diagnostics for all single-group and partnered RQ2 models
-rq3_models <- c("fit_rq3_avoi_glo", "fit_rq3_avoi_rom",
-                "fit_rq3_avoi_fri", "fit_rq3_avoi_mot",
-                "fit_rq3_avoi_fat", "fit_rq3_anxi_glo",
-                "fit_rq3_anxi_rom", "fit_rq3_anxi_fri",
-                "fit_rq3_anxi_mot", "fit_rq3_anxi_fat")
-
 rq3_diagnostics <- purrr::map_dfr(rq3_models, function(x) {
   fit <- get(x)
   tibble(
@@ -3411,6 +3893,10 @@ rq3_diagnostics <- purrr::map_dfr(rq3_models, function(x) {
 rq3_diagnostics %>% kable(digits = 3)
 ```
 
+::: {.callout-note appearance="minimal"}
+Again, no issues here.   
+:::
+
 ### Summary tables
 
 Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alpha1" (a1 = attach, w1 = life sat): 
@@ -3419,7 +3905,7 @@ Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alp
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -3437,32 +3923,33 @@ rq3_table_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Life satisfaction increases that are very similar across models (roughly *d* = .31 when standardized; a bit larger in the mother/father models). The attachment changes match the estimates from the univariate models relatively closely (and are all significant).  
 :::
 
 Latent intercept / slope variances & covariance - general terminology:  
 - (a) = attachment  
 - (w) = well-being (life satisf.)  
-- (c) = covariance  
+- (c) = covariance (or: correlation in the standardized solution)    
 - (v) = variance  
 - (i) = latent intercept  
 - (s) = latent slope   
 
-Cross-construct covariances (which are most relevant for the hypotheses):  
+Cross-construct correlations based on the standardized solutions:  
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_table_cross <- rq3_summary %>% 
+rq3_table_cross <- rq3_extracted_cross %>% 
   filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+  arrange(outc_fct, term) %>% 
+  mutate(group = "Consistently single", 
+         sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group, term, est, ci_lo, ci_hi, p_value, sig)
 
 rq3_table_cross %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -3472,26 +3959,36 @@ rq3_table_cross %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+The intercept-intercept correlations are all negative and significant (*p* < .001): With higher attachment insecurity (both avoidance and anxiety), people have lower life satisfaction.  
+
+The intercept-slope correlations are a bit more varied but mostly not significant. Exceptions are that:  
+- Single people with higher initial life satisfaction decreased (even) more in global attachment avoidance.  
+- Single people with higher initial life satisfaction increased more in mother-specific attachment anxiety (or decreased less).  
+- Single people with higher initial father-specific attachment anxiety, increased more in life satisfaction.  
+
+For slope-slope correlations, see below!  
 :::
 
-Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+Focus on parameter that is relevant to hypothesis: slope-slope correlation (standardized solution)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_summary %>% 
+rq3_table_cross %>% 
   filter(term=="css") %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
   knitr::kable(digits = 3)
 ```
+
+::: {.callout-note appearance="minimal"}
+Slope-slope correlations indicate negative co-development of attachement insecurity and life satisfaction that is significant for all domains, except for friend-specific attachment avoidance (*r* = -0.045). Otherwise, correlations range from *r* = -0.188 (romantic attachment avoidance) to *r* = -0.393 (global attachment avoidance).  
+
+This supports our hypothesis for global and romantic attachment. (Rest of the domains were exploratory)  
+:::
 
 Within-construct intercept-slope covariances:  
 
@@ -3499,7 +3996,7 @@ Within-construct intercept-slope covariances:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -3517,7 +4014,7 @@ rq3_table_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Only some of the attachment intercept-slope covariances are significant, but none for life satisfaction. Not super important für our RQs but it generally seems that people who start out higher in attachment insecurity then decrease more over time. 
 :::
 
 Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
@@ -3526,7 +4023,7 @@ Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -3534,7 +4031,7 @@ rq3_table_v <- rq3_summary %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq3_table_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -3544,7 +4041,7 @@ rq3_table_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Considerable (unexplained) heterogeneity in change across all outcomes (attachment domains & life satisfaction). This is especially pronounced for Avoidance: Mother, Anxiety: Global, Anxiety: Romantic, and Anxiety: Best Friend.
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)
@@ -3553,7 +4050,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -3571,53 +4068,20 @@ rq3_table_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
-:::
+Age moderation of intercepts and slopes are mostly not significant. A few exceptions for intercept and slope of Anxiety: Mother, as well as slope of Anxiety: Father and intercept of Avoidance: Mother.  
 
+Not really that relevant for us. We just use these as control variables.  
+:::
 
 ### Summary plot
 
-We're plotting the standardized effects (i.e., slope-slope correlations).  
+We're plotting the standardized effects (i.e., slope-slope correlations). See prereg: "The main effects of interest are the cross-construct intercept-slope correlations and slope-slope correlations."    
 
 Create plots for manuscript: start with extracting the parameters  
 
-```{r}
-#| echo: true
-#| warning: false
-#| output: true
-#| cache: true
-#| code-fold: true
-#| code-summary: "Show the code"
+(I moved the extraction function up to the tables section because we already use it there now ...)  
 
-# Extract standardized slope-slope correlation and CI
-extract_rq3_css_std <- function(fit_obj, name_obj) {
-  name_outc <- name_obj %>% 
-    stringr::str_remove("fit_rq3_") %>% 
-    stringr::str_remove("_partn_c$|_partn_i$")
-  
-  lavaan::standardizedSolution(fit_obj, ci = TRUE) %>% 
-    filter(label == "css") %>% 
-    mutate(outc = name_outc,
-           est = est.std,
-           ci_lo = ci.lower,
-           ci_hi = ci.upper) %>% 
-    select(outc, est, ci_lo, ci_hi, p_value = pvalue)
-}
-
-# Extract all RQ3 slope-slope correlations
-rq3_plot_css <- bind_rows(lapply(rq3_models, function(x) {
-  extract_rq3_css_std(get(x), x)
-})) %>% 
-  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
-  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
-                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
-                             ordered = TRUE),
-         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
-                           levels = c("Avoidance", "Anxiety"),
-                           ordered = TRUE))
-```
-
-Create and save plot: 
+Create and save plot:  
 ```{r}
 #| echo: true
 #| warning: false
@@ -3634,10 +4098,10 @@ bg_df_rq3 <- data.frame(
 )
 
 # Plot standardized slope-slope correlations
-plot_rq3_css <- ggplot(rq3_plot_css, aes(x = est, 
-                                         y = forcats::fct_rev(domain_fct),
-                                         colour = forcats::fct_rev(pred_fct), 
-                                         shape = forcats::fct_rev(pred_fct))) +
+plot_rq3_css <- ggplot(rq3_extracted_cross %>% filter(term=="css"), 
+                       aes(x = est,  y = forcats::fct_rev(domain_fct),
+                           colour = forcats::fct_rev(pred_fct), 
+                           shape = forcats::fct_rev(pred_fct))) +
   geom_rect(data = bg_df_rq3,
             aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
             inherit.aes = FALSE,
@@ -3681,6 +4145,12 @@ Show plot:
 
 plot_rq3_css
 ```
+
+::: {.callout-note appearance="minimal"}
+Hypothesis of co-development between singles' global and friend-specific attachment and life satisfaction is mostly supported, except for friend-specific attachment avoidance (no sig. corr.). Changes in romantic attachment are also comparatively slightly less strongly related to changes in life satisfaction, although still significant.  
+
+This only shows results in the single people's group. For a (descriptive) group comparison plot, see below in the exploratory analyses.  
+:::
 
 ### Full model results
 
@@ -3902,7 +4372,7 @@ From prereg: "For all attachment models, we will also explore whether consistent
 
 We don't need to adjust the template. Same as above, we just use different groups.
 
-### Template loop
+### Template loop & extraction
 
 Run loop over all 5 X 2 outcomes  
 
@@ -3910,26 +4380,33 @@ Run loop over all 5 X 2 outcomes
 #| echo: true
 #| warning: false
 #| output: false
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-# make factor ordering explitic again:
+# make factor ordering explicit again:
 df_atta_wide_single_partn_i <- df_atta_wide_single_partn_i %>% 
-  mutate(group_fct = factor(group_fct, levels = c("Consistently single people", "Intermittently partnered people"), labels = c("Consistently single", "Intermittently partnered"), ordered = TRUE))
+  mutate(group_fct = factor(group_fct, levels = c("Consistently single people", 
+                                                  "Intermittently partnered people"), 
+                            labels = c("Consistently single", "Intermittently partnered"), ordered = TRUE))
 
 levels(df_atta_wide_single_partn_i$group_fct)
 
+if (params$run_models) { # we can toggle this on/off in the YAML heading
+  
 # loop across all attachment outcomes
 for (i in 1:length(outcomes$short)) {
 #for (i in 1:2) {
   print(paste0("Running outcome: ", outcomes$maj[i]))
   
+  # Outcome-specific missingness indicator -> added this mostly for parent-specific attachment
+  missi_var <- paste0(outcomes$short[i], "_missi")
+  
   # Step 1: fill single-group model template for intermittently partnered people
   print("-> Step 1")
   model_rq2 <- stringr::str_replace_all(rq2_template, "outcome", outcomes$short[i])
   fit_rq2_partn_i <- lavaan::growth(model_rq2,
-                                     data = df_atta_wide_partn_i,
+                                     data = df_atta_wide_partn_i %>% filter(.data[[missi_var]] == 0),
                                      missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_i")), fit_rq2_partn_i))
   saveRDS(fit_rq2_partn_i, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_i.rds"))
@@ -3938,7 +4415,8 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 2")
   model_rq2_multi <- stringr::str_replace_all(rq2_template_multi, "outcome", outcomes$short[i])
   fit_rq2_multi_si <- lavaan::growth(model_rq2_multi,
-                                     data = df_atta_wide_single_partn_i %>% arrange(group_fct),
+                                     data = df_atta_wide_single_partn_i %>% filter(.data[[missi_var]] == 0) %>%
+                                       arrange(group_fct),
                                      group = "group_fct",
                                      missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_si")), fit_rq2_multi_si))
@@ -3948,7 +4426,8 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 3")
   model_rq2_multi_constr <- stringr::str_replace_all(rq2_template_multi_constr, "outcome", outcomes$short[i])
   fit_rq2_multi_si_constr <- lavaan::growth(model_rq2_multi_constr,
-                                            data = df_atta_wide_single_partn_i %>% arrange(group_fct),
+                                            data = df_atta_wide_single_partn_i %>% filter(.data[[missi_var]] == 0) %>%
+                                              arrange(group_fct),
                                             group = "group_fct",
                                             missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_si_constr")), fit_rq2_multi_si_constr))
@@ -3958,18 +4437,30 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 4")
   lrt_si <- anova(fit_rq2_multi_si, fit_rq2_multi_si_constr)
   eval(call("<-", as.name(paste0("lrt_rq2_mg_", outcomes$short[i], "_si")), lrt_si))
+  saveRDS(lrt_si, file = paste0("models/lrt_rq2_mg_", outcomes$short[i], "_si.rds"))
+}
 }
 ```
 Create summary table of all effects of interest:  
 
 First, parameter extraction  
-```{r}
+```{r rq2-load-extract-expl}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+# Load saved models when run_models = FALSE
+if (!params$run_models) {
+  for (x in outcomes$short) {
+    assign(paste0("fit_rq2_", x, "_partn_i"), readRDS(paste0("models/fit_rq2_", x, "_partn_i.rds")))
+    assign(paste0("fit_rq2_mg_", x, "_si"), readRDS(paste0("models/fit_rq2_mg_", x, "_si.rds")))
+    assign(paste0("fit_rq2_mg_", x, "_si_constr"), readRDS(paste0("models/fit_rq2_mg_", x, "_si_constr.rds")))
+    assign(paste0("lrt_rq2_mg_", x, "_si"), readRDS(paste0("models/lrt_rq2_mg_", x, "_si.rds")))
+  }
+}
 
 ### single-group lavaan models:
 # custom function for parameter extraction
@@ -4065,14 +4556,18 @@ rq2_summary_mg_partn_i <- rq2_summary_mg_partn_i %>%
 
 ### Model fit
 
-Fit statistics: single-group models
-```{r}
+Fit statistics: single-group models  
+-> These fit indices are very computationally expensive. I put them in a conditional chunk and load them as an RDS object in the next chunk.  
+
+```{r calc-fit-rq2-partn-i}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+if (params$run_expensive) { # only run when we allow this in YAML heading
 
 # model fit statistics: single-group models
 rq2_fit_partn_i <- outcomes$short %>% 
@@ -4088,20 +4583,36 @@ rq2_fit_partn_i <- outcomes$short %>%
                        levels = c("Intermittently partnered"),
                        ordered = TRUE))
 
+# save externally:
+saveRDS(rq2_fit_partn_i, "model_fit/rq2_fit_partn_i.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq2-partn-i}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq2_fit_partn_i <- readRDS("model_fit/rq2_fit_partn_i.rds")
+
 rq2_fit_partn_i %>% select(-outc) %>% 
   select(outc_fct, group_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 Fit statistics: multi-group models (of consistently single & consistently partnered)
-```{r}
+```{r calc-fit-rq2-mg-partn-i}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_expensive) { # only run when we allow this in YAML heading
+  
 # model fit statistics: multi-group models
 rq2_fit_mg_partn_i <- outcomes$short %>% 
   purrr::map_dfr(function(x) {
@@ -4111,11 +4622,28 @@ rq2_fit_mg_partn_i <- outcomes$short %>%
   select(outc, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
   mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
 
+# save externally:
+saveRDS(rq2_fit_mg_partn_i, "model_fit/rq2_fit_mg_partn_i.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq2-mg-partn-i}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq2_fit_mg_partn_i <- readRDS("model_fit/rq2_fit_mg_partn_i.rds")
+
 rq2_fit_mg_partn_i %>% 
-  select(-outc) %>% 
-  select(outc_fct, everything()) %>% 
+  select(-outc) %>% select(outc_fct, everything()) %>% 
   kable(digits = 3)
 ```
+
+::: {.callout-note appearance="minimal"}
+Similar to above or even a bit better. Some domains are still a bit worse than others (e.g., friend-specific avoidance).
+:::
 
 ### Model diagnostics
 
@@ -4185,11 +4713,16 @@ rq2_mg_diagnostics_partn_i <- purrr::map_dfr(rq2_mg_models_partn_i, function(x) 
 rq2_mg_diagnostics_partn_i %>% kable(digits = 3)
 ```
 
+
+::: {.callout-note appearance="minimal"}
+All looking good.
+:::
+
 ### Summary tables
 
 #### Single-group models
 
-Not so interesting by themselves but I include the single-group results here, too. See below for comparison with singles group.  
+Not so interesting by themselves but I include the single-group results here, too. See below for comparison with singles in the multi-group models.  
 
 Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1):  
 
@@ -4197,7 +4730,7 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1):
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4214,17 +4747,13 @@ rq2_table_partn_i_a %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Very similar .
-:::
-
 Latent intercept-slope covariance: (cis) 
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4236,17 +4765,13 @@ rq2_summary_partn_i %>%
   knitr::kable(digits = 3)
 ```
 
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
-
 Variances of the latent intercept and slope factors: (vi) & (vs)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4254,7 +4779,7 @@ rq2_table_partn_i_v <- rq2_summary_partn_i %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq2_table_partn_i_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -4263,17 +4788,13 @@ rq2_table_partn_i_v %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
-
 Age moderation of latent intercept and slope factors: (bi) & (bs)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4290,10 +4811,6 @@ rq2_table_partn_i_b %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
-
 #### Multi-group models
 
 Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)  
@@ -4304,7 +4821,7 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4322,7 +4839,11 @@ rq2_table_mg_partn_i_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Compared to consistently single people, intermittently partnered people decreased to a greater extent in romantic attachment avoidance (while both starting in similar places). Both groups decreased significantly over time, but this decrease was more pronounced in the intermittently partnered people. This is similar to romantic attachment anxiety, where intermittently partnered people also decreased more, while starting at similar levels.    
+
+It looks a bit different for mother-specific attachment avoidance: here, consistently single people decreased more over time than intermittently partnered people did. However, overall both groups are quite close to each other throughout (see confidence bands). This is also quite similar to our result comparing consistently single to consistently partnered people.     
+
+No significant differences in slopes among the other domains. Level differences are quite pronounced for global avoidance (anxiety a bit less so) as well as friend-specific avoidance and anxiety.   
 :::
 
 Latent intercept-slope covariance: (cis)  
@@ -4333,7 +4854,7 @@ Latent intercept-slope covariance: (cis)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4351,7 +4872,7 @@ rq2_table_mg_partn_i_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+For most domains, these intercept-slope covariance are larger and more consistently significant in the intermittently partnered people compared to the single people. This may reflect a greater presence and influence of different starting points in this group, e.g., after amicable break-up or unhappy relationships, people differ more in how they change depending on their baseline (?). But not that relevant for us...
 :::
 
 Variances of the latent intercept and slope factors: (vi) & (vs)  
@@ -4362,7 +4883,7 @@ Variances of the latent intercept and slope factors: (vi) & (vs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4370,7 +4891,7 @@ rq2_table_mg_partn_i_v <- rq2_summary_mg_partn_i %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq2_table_mg_partn_i_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -4378,10 +4899,6 @@ rq2_table_mg_partn_i_v %>%
   kableExtra::row_spec(which(rep(c(TRUE, FALSE), each = 4, length.out = nrow(rq2_table_mg_partn_i_v))),
                        background = "lightgrey")
 ```
-
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)  
 
@@ -4391,7 +4908,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4408,10 +4925,6 @@ rq2_table_mg_partn_i_b %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
-
 ### Summary plot
 
 Create plots for manuscript: start with extracting the parameters
@@ -4420,7 +4933,7 @@ Create plots for manuscript: start with extracting the parameters
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -4493,7 +5006,7 @@ Create and save plot:
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
+#| output: false
 #| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
@@ -4512,7 +5025,7 @@ plot_rq2_traject_partn_i <- ggplot(plot_traject_df_rq2_partn_i, aes(x = time_yea
   scale_fill_manual(values = group_colors) +
   scale_linetype_manual(values = group_linetypes) +
   facet_wrap(~outc_fct_label, ncol = 2, nrow = 5, scales = "free_y", dir = "v") +
-  ggh4x::facetted_pos_scales(y = y_scales_rq2) +
+  ggh4x::facetted_pos_scales(y = y_scales_rq2_partn_i) +
   labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)", 
        colour = NULL, fill = NULL, linetype = NULL) +
   guides(colour = guide_legend(title = "Group"),
@@ -4543,6 +5056,10 @@ Show plot:
 
 plot_rq2_traject_partn_i
 ```
+
+::: {.callout-note appearance="minimal"}
+Main difference with the intermittently partnered group: Significant differences in romantic attachment, where intermittently partnered people start out more insecure (than the consistently partnered) but then become more secure, again, over time and to a greater extent that the consistently single people. This likely reflects the influence of forming new relationship(s).
+:::
 
 ### Full model results
 
@@ -4972,7 +5489,7 @@ From prereg: "In addition, for all attachment models, we will explore co-develop
 
 We don't need to adjust the template. Same as above, we just use different groups.
 
-### Template loop
+### Template loop & extraction
 
 Run loop over all 5 X 2 outcomes  
 
@@ -4982,10 +5499,12 @@ Run loop over all 5 X 2 outcomes
 #| echo: true
 #| warning: false
 #| output: false
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_models) { # we can toggle this on/off in the YAML heading
+  
 # loop across all attachment outcomes
 for (i in 1:length(outcomes$short)) {
   print(paste0("Running outcome: ", outcomes$maj[i]))
@@ -4993,9 +5512,12 @@ for (i in 1:length(outcomes$short)) {
   # Fill bivariate LGCM template
   model_rq3 <- stringr::str_replace_all(rq3_template, "outcome", outcomes$short[i])
 
+  # Outcome-specific missingness indicator -> added this mostly for parent-specific attachment
+  missi_var <- paste0(outcomes$short[i], "_missi")
+  
   # Fit model in consistently partnered people
   fit_rq3_partn_c <- lavaan::growth(model_rq3,
-                                    data = df_atta_wide_partn_c,
+                                    data = df_atta_wide_partn_c %>% filter(.data[[missi_var]] == 0),
                                     missing = "fiml",
                                     verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_partn_c")), fit_rq3_partn_c))
@@ -5003,26 +5525,33 @@ for (i in 1:length(outcomes$short)) {
 
   # Fit model in intermittently partnered people
   fit_rq3_partn_i <- lavaan::growth(model_rq3,
-                                    data = df_atta_wide_partn_i,
+                                    data = df_atta_wide_partn_i %>% filter(.data[[missi_var]] == 0),
                                     missing = "fiml",
                                     verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_partn_i")), fit_rq3_partn_i))
   saveRDS(fit_rq3_partn_i, file = paste0("models/fit_rq3_", outcomes$short[i], "_partn_i.rds"))
 }
+}
 ```
 
-::: {.callout-note appearance="minimal"}
-The p-value is not significant ...   
-:::
-
 Create summary table of all effects of interest: parameter extraction  
-```{r}
+... this is based on the broom::tidy() method with unstandardized parameters  
+
+```{r rq3-load-extract-expl}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+# Load saved models when run_models = FALSE
+if (!params$run_models) {
+  for (x in outcomes$short) {
+    assign(paste0("fit_rq3_", x, "_partn_c"), readRDS(paste0("models/fit_rq3_", x, "_partn_c.rds")))
+    assign(paste0("fit_rq3_", x, "_partn_i"), readRDS(paste0("models/fit_rq3_", x, "_partn_i.rds")))
+  }
+}
 
 # custom function for parameter extraction from bivariate LGCMs
 # same as above
@@ -5064,17 +5593,79 @@ rq3_summary_partn_i <- rq3_summary_partn_i %>%
                            labels = outcomes$maj, ordered = TRUE))
 ```
 
-### Model fit
+For the preregistered effects of interest, I use lavaan::standardizedSolution(). For the cross-construct latent growth-factor covariances, standardization yields correlations rather than covariances. The standardized estimates have their own SEs, CIs, and p-values, which can differ slightly from those of the corresponding unstandardized covariances. This matches the preregistration: “The main effects of interest are the cross-construct intercept-slope correlations and slope-slope correlations.”  
 
-Fit statistics: consistently partnered
+The standardized effect size is always the same as the est_std / std.all one from broom::tidy(), though.  
+
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+# Extract standardized slope-slope correlation and CI
+# same function as above
+
+# Extract all RQ3 slope-slope correlations -> Consistently partnered
+rq3_models_partn_c <- c("fit_rq3_avoi_glo_partn_c", "fit_rq3_avoi_rom_partn_c",
+                "fit_rq3_avoi_fri_partn_c", "fit_rq3_avoi_mot_partn_c",
+                "fit_rq3_avoi_fat_partn_c", "fit_rq3_anxi_glo_partn_c",
+                "fit_rq3_anxi_rom_partn_c", "fit_rq3_anxi_fri_partn_c",
+                "fit_rq3_anxi_mot_partn_c", "fit_rq3_anxi_fat_partn_c")
+
+rq3_extracted_cross_partn_c <- bind_rows(lapply(rq3_models_partn_c, function(x) {
+  extract_rq3_cross_std(get(x), x)
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE)) %>% 
+  as_tibble() %>% 
+  arrange(outc_fct, term) %>% 
+  select(outc_fct, term, est, ci_lo, ci_hi, p_value, domain_fct, pred_fct)
+
+# Extract all RQ3 slope-slope correlations -> Intermittently partnered
+rq3_models_partn_i <- c("fit_rq3_avoi_glo_partn_i", "fit_rq3_avoi_rom_partn_i",
+                        "fit_rq3_avoi_fri_partn_i", "fit_rq3_avoi_mot_partn_i",
+                        "fit_rq3_avoi_fat_partn_i", "fit_rq3_anxi_glo_partn_i",
+                        "fit_rq3_anxi_rom_partn_i", "fit_rq3_anxi_fri_partn_i",
+                        "fit_rq3_anxi_mot_partn_i", "fit_rq3_anxi_fat_partn_i")
+
+rq3_extracted_cross_partn_i <- bind_rows(lapply(rq3_models_partn_i, function(x) {
+  extract_rq3_cross_std(get(x), x)
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE)) %>% 
+  as_tibble() %>% 
+  arrange(outc_fct, term) %>% 
+  select(outc_fct, term, est, ci_lo, ci_hi, p_value, domain_fct, pred_fct)
+```
+
+### Model fit
+
+Fit statistics: consistently partnered  
+-> These fit indices are very computationally expensive. I put them in a conditional chunk and load them as an RDS object in the next chunk.  
+
+```{r calc-fit-rq3-partn-c}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+if (params$run_expensive) { # only run when we allow this in YAML heading
+  
 # model fit statistics: single-group models -> consistently partnered
 rq3_fit_partn_c <- outcomes$short %>% 
   purrr::map_dfr(function(x) {
@@ -5091,20 +5682,37 @@ rq3_fit_partn_c <- outcomes$short %>%
                                   "Intermittently partnered"),
                        ordered = TRUE))
 
+# save externally:
+saveRDS(rq3_fit_partn_c, "model_fit/rq3_fit_partn_c.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq3-partn-c}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq3_fit_partn_c <- readRDS("model_fit/rq3_fit_partn_c.rds")
+
 rq3_fit_partn_c %>% select(-outc) %>% 
   select(outc_fct, group_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 Fit statistics: intermittently partnered
-```{r}
+
+```{r calc-fit-rq3-partn-i}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_expensive) { # only run when we allow this in YAML heading
+  
 # model fit statistics: single-group models
 rq3_fit_partn_i <- outcomes$short %>% 
   purrr::map_dfr(function(x) {
@@ -5121,13 +5729,27 @@ rq3_fit_partn_i <- outcomes$short %>%
                                   "Intermittently partnered"),
                        ordered = TRUE))
 
+# save externally:
+saveRDS(rq3_fit_partn_i, "model_fit/rq3_fit_partn_i.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq3-partn-i}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq3_fit_partn_i <- readRDS("model_fit/rq3_fit_partn_i.rds")
+
 rq3_fit_partn_i %>% select(-outc) %>% 
   select(outc_fct, group_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 ::: {.callout-note appearance="minimal"}
-Pretty similar    
+Somewhat better fit here in both groups than in the confirmatory models with the single people. Sample size is more than double here, though. That may play a role.     
 :::
 
 ### Model diagnostics
@@ -5146,12 +5768,6 @@ Diagnostics: consistently partnered
 #| code-summary: "Show the code"
 
 # diagnostics for all single-group RQ3 models
-rq3_models_partn_c <- c("fit_rq3_avoi_glo_partn_c", "fit_rq3_avoi_rom_partn_c",
-                "fit_rq3_avoi_fri_partn_c", "fit_rq3_avoi_mot_partn_c",
-                "fit_rq3_avoi_fat_partn_c", "fit_rq3_anxi_glo_partn_c",
-                "fit_rq3_anxi_rom_partn_c", "fit_rq3_anxi_fri_partn_c",
-                "fit_rq3_anxi_mot_partn_c", "fit_rq3_anxi_fat_partn_c")
-
 rq3_diagnostics_partn_c <- purrr::map_dfr(rq3_models_partn_c, function(x) {
   fit <- get(x)
   tibble(
@@ -5176,12 +5792,6 @@ Diagnostics: intermittently partnered
 #| code-summary: "Show the code"
 
 # diagnostics for all single-group RQ3 models
-rq3_models_partn_i <- c("fit_rq3_avoi_glo_partn_i", "fit_rq3_avoi_rom_partn_i",
-                        "fit_rq3_avoi_fri_partn_i", "fit_rq3_avoi_mot_partn_i",
-                        "fit_rq3_avoi_fat_partn_i", "fit_rq3_anxi_glo_partn_i",
-                        "fit_rq3_anxi_rom_partn_i", "fit_rq3_anxi_fri_partn_i",
-                        "fit_rq3_anxi_mot_partn_i", "fit_rq3_anxi_fat_partn_i")
-
 rq3_diagnostics_partn_i <- purrr::map_dfr(rq3_models_partn_i, function(x) {
   fit <- get(x)
   tibble(
@@ -5196,6 +5806,10 @@ rq3_diagnostics_partn_i <- purrr::map_dfr(rq3_models_partn_i, function(x) {
 rq3_diagnostics_partn_i %>% kable(digits = 3)
 ```
 
+::: {.callout-note appearance="minimal"}
+All looking good!     
+:::
+
 ### Summary tables
 
 #### Consistently partnered 
@@ -5206,7 +5820,7 @@ Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alp
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5224,32 +5838,35 @@ rq3_table_partn_c_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Compared to the consistently single people, the consistently partnered people have higher life satisfaction (intercept) and also increase more in life satisfaction (slope).  
+
+In most attachment domains (esp. global & romantic), consistently partnered people are more securely attached (lower avoidance and anxiety). Descriptively, consistently single people also become more securely attached at higher rates than partnered people in most domains, but as we saw above, these differences are only seldomly significant. 
 :::
 
 Latent intercept / slope variances & covariance - general terminology:  
 - (a) = attachment  
 - (w) = well-being (life satisf.)  
-- (c) = covariance  
+- (c) = covariance (or: correlation in the standardized solution)    
 - (v) = variance  
 - (i) = latent intercept  
 - (s) = latent slope   
 
-Cross-construct covariances (which are most relevant for the hypotheses):  
+Cross-construct correlations (which are most relevant for the hypotheses):  
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_table_partn_c_cross <- rq3_summary_partn_c %>% 
+rq3_table_partn_c_cross <- rq3_extracted_cross_partn_c %>% 
   filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+  arrange(outc_fct, term) %>% 
+  mutate(group = "Consistently partnered", 
+         sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group, term, est, ci_lo, ci_hi, p_value, sig)
 
 rq3_table_partn_c_cross %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -5259,26 +5876,31 @@ rq3_table_partn_c_cross %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Pretty similar to the singles we examined above. The intercept-intercept correlations are all negative and significant (*p* < .001): With higher attachment insecurity (both avoidance and anxiety), people have lower life satisfaction.  
+
+The intercept-slope correlations are, again, a bit more varied but mostly not significant. However, here in the consistently partnered people a few more of the correlations between intercept (attachment) and slope (life sat) are significant and positive: with more insecure attachment (esp. anxiety), people increased more in life satisfaction.  
+
+For slope-slope correlations, see below!  
 :::
 
-Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+Focus on parameter that is relevant to hypothesis: slope-slope correlation (standardized solution)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_summary_partn_c %>% 
+rq3_table_partn_c_cross %>% 
   filter(term=="css") %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
   knitr::kable(digits = 3)
 ```
+
+::: {.callout-note appearance="minimal"}
+Overall, relatively similar slope-slope correlations in partnered vs. single. The biggest difference is for romantic avoidance where this correlation is much more pronounced in the partnered group.  
+:::
 
 Within-construct intercept-slope covariances:  
 
@@ -5286,7 +5908,7 @@ Within-construct intercept-slope covariances:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5304,7 +5926,9 @@ rq3_table_partn_c_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Here, in the consistently partnered people, all covariances for attachment domains are significant (and negative). With higher baseline attachment insecurity people decreased to a greater extent in attachment insecurity over time.  
+
+For singles, this was only the case for some of them and notably not for global and romantic avoidance. Otherwise, no strong differences here.  
 :::
 
 Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
@@ -5313,7 +5937,7 @@ Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5321,7 +5945,7 @@ rq3_table_partn_c_v <- rq3_summary_partn_c %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq3_table_partn_c_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -5331,7 +5955,9 @@ rq3_table_partn_c_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Overall, slightly less variance in attachment slopes in consistently partnered vs. consistently single people. But no huge differences.  
+
+In addition, consistently partnered people display greater heterogeneity in life satisfaction levels and slopes than singles.  
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)
@@ -5340,7 +5966,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5358,7 +5984,7 @@ rq3_table_partn_c_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Slightly more evidence for age moderation here (compared to singles) but still rather inconsistent / sparse.
 :::
 
 #### Intermittently partnered 
@@ -5369,7 +5995,7 @@ Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alp
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5387,32 +6013,35 @@ rq3_table_partn_i_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Compared to the consistently single people, the intermittently partnered people have higher life satisfaction (intercept) and also increase more in life satisfaction (slope).  
+
+In most attachment domains, intermittently partnered people are comparable to singles in their levels (intercepts) but decrease in attachment insecurity to a somewhat greater extent (slopes). This is especially the case for romantic avoidance and anxiety (see also tests of these slope diffs above...).  
 :::
 
 Latent intercept / slope variances & covariance - general terminology:  
 - (a) = attachment  
 - (w) = well-being (life satisf.)  
-- (c) = covariance  
+- (c) = covariance (or: correlation in the standardized solution)    
 - (v) = variance  
 - (i) = latent intercept  
 - (s) = latent slope   
 
-Cross-construct covariances (which are most relevant for the hypotheses):  
+Cross-construct correlations (which are most relevant for the hypotheses):  
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_table_partn_i_cross <- rq3_summary_partn_i %>% 
+rq3_table_partn_i_cross <- rq3_extracted_cross_partn_i %>% 
   filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+  arrange(outc_fct, term) %>% 
+  mutate(group = "Intermittently partnered",
+         sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group, term, est, ci_lo, ci_hi, p_value, sig)
 
 rq3_table_partn_i_cross %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -5422,26 +6051,33 @@ rq3_table_partn_i_cross %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Pretty similar to the singles we examined above. The intercept-intercept correlations are all negative and significant (*p* < .001): With higher attachment insecurity (both avoidance and anxiety), people have lower life satisfaction.  
+
+The intercept-slope correlations are, again, a bit more varied but mostly not significant.  
+
+For slope-slope correlations, see below!  
 :::
 
-Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+Focus on parameter that is relevant to hypothesis: slope-slope correlation (standardized solution)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_summary_partn_i %>% 
+rq3_extracted_cross_partn_i %>% 
   filter(term=="css") %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
   knitr::kable(digits = 3)
 ```
+
+::: {.callout-note appearance="minimal"}
+Biggest differences to the consistently single people:  
+- slope-slope correlation is also significant for friend-specific avoidance in the intermittently partnered people  
+- co-development with romantic avoidance is considerably larger in the intermittently partnered people  
+:::
 
 Within-construct intercept-slope covariances:  
 
@@ -5449,7 +6085,7 @@ Within-construct intercept-slope covariances:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5467,7 +6103,7 @@ rq3_table_partn_i_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+These are somewhat stronger in the intermittently partnered people compared to the singles - for both attachment and life satisfaction.  
 :::
 
 Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
@@ -5476,7 +6112,7 @@ Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5484,7 +6120,7 @@ rq3_table_partn_i_v <- rq3_summary_partn_i %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq3_table_partn_i_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -5494,7 +6130,7 @@ rq3_table_partn_i_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Relatively similar in intercept variances. Perhaps a trend that intermittently partnered people are more heterogeneous than singles, esp. in how they change in romantic attachment.
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)
@@ -5503,7 +6139,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -5521,50 +6157,12 @@ rq3_table_partn_i_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Pretty similar but somewhat more evidence for age moderation of intercepts (not so much slopes, though).  
 :::
 
 ### Summary plot
 
 We're plotting the standardized effects (i.e., slope-slope correlations).  
-
-Create plots for manuscript: start with extracting the parameters  
-
-```{r}
-#| echo: true
-#| warning: false
-#| output: true
-#| cache: true
-#| code-fold: true
-#| code-summary: "Show the code"
-
-# Extract standardized slope-slope correlation and CI
-# same function as above
-
-# Extract all RQ3 slope-slope correlations -> Consistently partnered
-rq3_plot_css_partn_c <- bind_rows(lapply(rq3_models_partn_c, function(x) {
-  extract_rq3_css_std(get(x), x)
-})) %>% 
-  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
-  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
-                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
-                             ordered = TRUE),
-         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
-                           levels = c("Avoidance", "Anxiety"),
-                           ordered = TRUE))
-
-# Extract all RQ3 slope-slope correlations -> Intermittently partnered
-rq3_plot_css_partn_i <- bind_rows(lapply(rq3_models_partn_i, function(x) {
-  extract_rq3_css_std(get(x), x)
-})) %>% 
-  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
-  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
-                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
-                             ordered = TRUE),
-         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
-                           levels = c("Avoidance", "Anxiety"),
-                           ordered = TRUE))
-```
 
 #### Consistently partnered
 
@@ -5572,16 +6170,16 @@ Create and save plot:
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
+#| output: false
 #| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
 # Plot standardized slope-slope correlations -> Consistently partnered
-plot_rq3_css_partn_c <- ggplot(rq3_plot_css_partn_c, aes(x = est, 
-                                         y = forcats::fct_rev(domain_fct),
-                                         colour = forcats::fct_rev(pred_fct), 
-                                         shape = forcats::fct_rev(pred_fct))) +
+plot_rq3_css_partn_c <- ggplot(rq3_extracted_cross_partn_c %>% filter(term=="css"), 
+                               aes(x = est, y = forcats::fct_rev(domain_fct),
+                                   colour = forcats::fct_rev(pred_fct), 
+                                   shape = forcats::fct_rev(pred_fct))) +
   geom_rect(data = bg_df_rq3,
             aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
             inherit.aes = FALSE,
@@ -5626,6 +6224,10 @@ Show plot:
 plot_rq3_css_partn_c
 ```
 
+::: {.callout-note appearance="minimal"}
+Significant, negative slope-slope correlations in all attachment domains. Strongest for romantic and global attachment. 
+:::
+
 #### Intermittently partnered
 
 Create and save plot: 
@@ -5638,10 +6240,10 @@ Create and save plot:
 #| code-summary: "Show the code"
 
 # Plot standardized slope-slope correlations -> Intermittently partnered
-plot_rq3_css_partn_i <- ggplot(rq3_plot_css_partn_i, aes(x = est, 
-                                         y = forcats::fct_rev(domain_fct),
-                                         colour = forcats::fct_rev(pred_fct), 
-                                         shape = forcats::fct_rev(pred_fct))) +
+plot_rq3_css_partn_i <- ggplot(rq3_extracted_cross_partn_i %>% filter(term=="css"), 
+                               aes(x = est, y = forcats::fct_rev(domain_fct),
+                                   colour = forcats::fct_rev(pred_fct), 
+                                   shape = forcats::fct_rev(pred_fct))) +
   geom_rect(data = bg_df_rq3,
             aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
             inherit.aes = FALSE,
@@ -5686,6 +6288,10 @@ Show plot:
 plot_rq3_css_partn_i
 ```
 
+::: {.callout-note appearance="minimal"}
+Significant, negative slope-slope correlations in all attachment domains, except for mother-specific anxiety. Strongest correlations for romantic and global attachment. However, the romantic slope-slope correlations are slightly less pronounced than in the consistently single group. 
+:::
+
 #### All three groups together!
 
 Create and save plot: 
@@ -5698,10 +6304,10 @@ Create and save plot:
 #| code-summary: "Show the code"
 
 # joint df of all groups
-rq3_plot_css_all <- bind_rows(
-  rq3_plot_css %>% mutate(group = "Consistently single"),
-  rq3_plot_css_partn_c %>% mutate(group = "Consistently partnered"),
-  rq3_plot_css_partn_i %>% mutate(group = "Intermittently partnered")
+rq3_extracted_cross_all <- bind_rows(
+  rq3_extracted_cross %>% mutate(group = "Consistently single"),
+  rq3_extracted_cross_partn_c %>% mutate(group = "Consistently partnered"),
+  rq3_extracted_cross_partn_i %>% mutate(group = "Intermittently partnered")
 ) %>% 
   mutate(group_fct = factor(group,
                             levels = c("Consistently single", "Consistently partnered", "Intermittently partnered"),
@@ -5712,8 +6318,10 @@ group_colors <- c("Consistently single" = "#008837", "Consistently partnered" = 
                   "Intermittently partnered" = "#6A3D9A")
 
 # Plot standardized slope-slope correlations across groups
-plot_rq3_css_all <- ggplot(rq3_plot_css_all, aes(x = est, y = forcats::fct_rev(group_fct), 
-                                                 colour = forcats::fct_rev(group_fct), shape = forcats::fct_rev(group_fct))) +
+plot_rq3_css_all <- ggplot(rq3_extracted_cross_all %>% filter(term=="css"), 
+                           aes(x = est, y = forcats::fct_rev(group_fct), 
+                               colour = forcats::fct_rev(group_fct), 
+                               shape = forcats::fct_rev(group_fct))) +
   geom_vline(xintercept = 0, colour = "black") +
   geom_point(size = 2.5) +
   geom_errorbarh(aes(xmin = ci_lo, xmax = ci_hi), height = 0.3, linewidth = 0.3, alpha = 0.85) +
@@ -5731,7 +6339,7 @@ plot_rq3_css_all <- ggplot(rq3_plot_css_all, aes(x = est, y = forcats::fct_rev(g
         axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
 # save as pdf
-pdf(width = 6.5, height = 7.5, "figures/rq3_plot_css_all.pdf")
+pdf(width = 6, height = 7, "figures/rq3_plot_css_all.pdf")
 plot_rq3_css_all
 dev.off()
 ```
@@ -5745,6 +6353,10 @@ Show plot:
 
 plot_rq3_css_all
 ```
+
+::: {.callout-note appearance="minimal"}
+Global attachment has relatively similar co-development across groups. However, in the specific domains some important differences emerge: romantic avoidance is much more relevant for the partnered groups than the singles. Also, some more subtle differences for best-friend attachment and mother/father. 
+:::
 
 ### Full model results
 
@@ -6214,7 +6826,7 @@ Run all outcomes in a loop:
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
+#| output: false
 #| cache: true
 #| code-fold: true
 #| code-summary: "Show the code"
@@ -6242,21 +6854,23 @@ Extract and combine the parameters of interest
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
 # Satterthwaite-based df and p.value
 rq2_lmer_summary <- purrr::imap_dfr(rq2_lmer_models, ~broom.mixed::tidy(.x, effects = "fixed", conf.int = TRUE) %>%
   filter(term %in% c("time_month_rd", "single", "time_month_rd:single", "age_base_z", "age_base_z:single")) %>%
-  mutate(outc = .y)) %>% 
+  mutate(outc = .y,
+    n_persons = dplyr::n_distinct(model.frame(.x)$pid),
+    n_obs = nrow(model.frame(.x)))) %>% 
   rename(est = estimate, ci_lo = conf.low, ci_hi = conf.high, p_value = p.value) %>%
   mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
 
 # group differences in slopes
 rq2_lmer_slope_diff <- rq2_lmer_summary %>% 
   filter(term == "time_month_rd:single") %>% 
-  select(outc, outc_fct, est, ci_lo, ci_hi, p_value) 
+  select(outc, outc_fct, est, ci_lo, ci_hi, p_value, n_persons, n_obs) 
 ```
 
 ### Results table
@@ -6267,12 +6881,13 @@ Focusing on the effect of interest: cross-level interaction of time (in months) 
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
 rq2_lmer_slope_diff %>% select(-1) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  relocate(sig, .after = p_value) %>% 
   kable(digits = 3)
 ```
 
@@ -6281,7 +6896,7 @@ To compare effect sizes with lavaan models: both now use 30 months of data
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -6307,14 +6922,18 @@ rq2_lmer_slopes <- purrr::imap_dfr(rq2_lmer_models, function(model, model_name) 
 })
 
 rq2_lmer_slopes %>% 
-  mutate(change_30m = sprintf("%.3f", change_30m),
-         ci_95 = paste0("[", sprintf("%.3f", ci_lo), ", ", sprintf("%.3f", ci_hi), "]")) %>% 
+  mutate(change_30m = sprintf("%.2f", change_30m),
+         ci_95 = paste0("[", sprintf("%.2f", ci_lo), ", ", sprintf("%.2f", ci_hi), "]")) %>% 
   left_join(rq2_lmer_summary %>% distinct(outc, outc_fct), by = "outc") %>% 
   arrange(outc_fct, factor(group, levels = c("Consistently single", "Consistently partnered"),
                            labels = c("Consistently single", "Consistently partnered"))) %>% 
   select(outc_fct, group, change_30m, ci_95) %>% 
   kable(col.names = c("Outcome", "Group", "30-month change", "95% CI"))
 ```
+
+::: {.callout-note appearance="minimal"}
+Quite similar to the lavaan() LGCM! The significance testing is bit more liberal here compared to the LRT method (matching *p* < .10 in the LRTs...). Effect sizes are also quite similar. Main difference probably lies in the FIML method for dealing with missingness which is not applied here in the MLM.
+:::
 
 ### Summary plot
 
@@ -6374,18 +6993,19 @@ y_scales_rq2_lmer <- lapply(seq_len(nrow(plot_traject_limits_rq2_lmer)), functio
     labels = scales::label_number(accuracy = 0.1)
   )
 })
-
-names(y_scales_rq2_lmer) <- as.character(plot_traject_limits_rq2_lmer$outc_fct_label)
 ```
 
 Create and save plot: 
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
+#| output: false
 #| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+group_colors <- c("Consistently single" = "#008837", "Consistently partnered" = "#A23E48")
+group_linetypes <- c("Consistently single" = "solid", "Consistently partnered" = "longdash")
 
 # Plot RQ2 MLM model-implied trajectories with 95% confidence bands
 plot_rq2_traject_lmer <- ggplot(plot_traject_df_rq2_lmer, aes(x = time_years, y = predicted,
@@ -6397,20 +7017,7 @@ plot_rq2_traject_lmer <- ggplot(plot_traject_df_rq2_lmer, aes(x = time_years, y 
   scale_fill_manual(values = group_colors, breaks = c("Consistently single", "Consistently partnered")) +
   scale_linetype_manual(values = group_linetypes, breaks = c("Consistently single", "Consistently partnered")) +
   facet_wrap(~outc_fct_label, ncol = 2, nrow = 5, scales = "free_y", dir = "v") +
-  ggh4x::facetted_pos_scales(
-    y = list( # no idea why this was necessary here but couldnt get it to work otherwise :(
-      outc_fct_label == "Avoidance: Global" ~ y_scales_rq2_lmer[["Avoidance: Global"]],
-      outc_fct_label == "Avoidance: Romantic (**)" ~ y_scales_rq2_lmer[["Avoidance: Romantic (**)"]],
-      outc_fct_label == "Avoidance: Best Friend" ~ y_scales_rq2_lmer[["Avoidance: Best Friend"]],
-      outc_fct_label == "Avoidance: Mother (**)" ~ y_scales_rq2_lmer[["Avoidance: Mother (**)"]],
-      outc_fct_label == "Avoidance: Father" ~ y_scales_rq2_lmer[["Avoidance: Father"]],
-      outc_fct_label == "Anxiety: Global (*)" ~ y_scales_rq2_lmer[["Anxiety: Global (*)"]],
-      outc_fct_label == "Anxiety: Romantic" ~ y_scales_rq2_lmer[["Anxiety: Romantic"]],
-      outc_fct_label == "Anxiety: Best Friend" ~ y_scales_rq2_lmer[["Anxiety: Best Friend"]],
-      outc_fct_label == "Anxiety: Mother" ~ y_scales_rq2_lmer[["Anxiety: Mother"]],
-      outc_fct_label == "Anxiety: Father" ~ y_scales_rq2_lmer[["Anxiety: Father"]]
-    )
-  ) +
+  ggh4x::facetted_pos_scales(y = y_scales_rq2_lmer) +
   labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)",
        colour = NULL, fill = NULL, linetype = NULL) +
   guides(colour = guide_legend(title = "Group"),
@@ -6442,7 +7049,28 @@ Show plot:
 plot_rq2_traject_lmer
 ```
 
+::: {.callout-note appearance="minimal"}
+These trajectories look remarkably similar to the SEM/lavaan ones. At first glance, the biggest difference is maybe the tiny difference in the singles' slope for father-specific anxiety.   
+
+The significance evaluation is slightly different here and a bit more liberal (this is typical, in my experience). Therefore, we also get significant slope differences (i.e., cross-level interactions) for global anxiety and romantic avoidance.  
+:::
+
 ## LGCM but only up to 24 months 
+
+For this check, the idea is that the later months of data are relatively sparse and that most participants finished the study within 24 months. Our confirmatory models above (using 30 out of potentially 41 available months) aimed to strike a compromise and use rather more of these later months. Now we aim to be a bit more conservative and try to model the period where we definitely have sufficient observations.  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: false
+#| cache: false
+
+#overall:
+table(df_atta$time_month_rd)
+
+#by group:
+table(df_atta$group_fct, df_atta$time_month_rd)
+```
 
 ### RQ2 models
 
@@ -6544,7 +7172,7 @@ rq2_template_multi_constr_24m <- stringr::str_replace_all(rq2_template_multi_con
 rq2_template_multi_constr_24m <- stringr::str_replace_all(rq2_template_multi_constr_24m, 'a1_p', 'a1')
 ```
 
-#### Template loop
+#### Template loop & extraction
 
 Run loop over all 5 X 2 outcomes  
 
@@ -6554,24 +7182,30 @@ Run loop over all 5 X 2 outcomes
 #| echo: true
 #| warning: false
 #| output: false
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_models) { # we can toggle this on/off in the YAML heading
+  
 # Loop across all attachment outcomes
 for (i in 1:length(outcomes$short)) {
   print(paste0("Running outcome: ", outcomes$maj[i]))
+  
+  # Outcome-specific missingness indicator -> added this mostly for parent-specific attachment
+  missi_var <- paste0(outcomes$short[i], "_missi")
+  
   # Step 1: fill single-group model template (2x, 1 for single, 1 for partnered)
   print("-> Step 1")
   model_rq2_24m <- stringr::str_replace_all(rq2_template_24m, "outcome", outcomes$short[i])
   fit_rq2_24m <- lavaan::growth(model_rq2_24m,
-                                data = df_atta_wide_single_c,
+                                data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
                                 missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_24m")), fit_rq2_24m))
   saveRDS(fit_rq2_24m, file = paste0("models/fit_rq2_", outcomes$short[i], "_24m.rds"))
   
   fit_rq2_partn_c_24m <- lavaan::growth(model_rq2_24m,
-                                        data = df_atta_wide_partn_c,
+                                        data = df_atta_wide_partn_c %>% filter(.data[[missi_var]] == 0),
                                         missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_c_24m")), fit_rq2_partn_c_24m))
   saveRDS(fit_rq2_partn_c_24m, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_c_24m.rds"))
@@ -6580,7 +7214,8 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 2")
   model_rq2_multi_24m <- stringr::str_replace_all(rq2_template_multi_24m, "outcome", outcomes$short[i])
   fit_rq2_multi_24m <- lavaan::growth(model_rq2_multi_24m,
-                                      data = df_atta_wide_single_partn_c %>% arrange(group_fct),
+                                      data = df_atta_wide_single_partn_c %>% filter(.data[[missi_var]] == 0) %>% 
+                                        arrange(group_fct),
                                       group = "group_fct",
                                       missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_24m")), fit_rq2_multi_24m))
@@ -6590,7 +7225,8 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 3")
   model_rq2_multi_constr_24m <- stringr::str_replace_all(rq2_template_multi_constr_24m, "outcome", outcomes$short[i])
   fit_rq2_multi_constr_24m <- lavaan::growth(model_rq2_multi_constr_24m,
-                                             data = df_atta_wide_single_partn_c %>% arrange(group_fct),
+                                             data = df_atta_wide_single_partn_c %>% filter(.data[[missi_var]] == 0) %>% 
+                                               arrange(group_fct),
                                              group = "group_fct",
                                              missing = "fiml", verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_constr_24m")),
@@ -6602,17 +7238,30 @@ for (i in 1:length(outcomes$short)) {
   print("-> Step 4")
   lrt_24m <- anova(fit_rq2_multi_24m, fit_rq2_multi_constr_24m)
   eval(call("<-", as.name(paste0("lrt_rq2_mg_", outcomes$short[i], "_24m")), lrt_24m))
+  saveRDS(lrt_24m, file = paste0("models/lrt_rq2_mg_", outcomes$short[i], "_24m.rds"))
+}
 }
 ```
 
 First, parameter extraction  
-```{r}
+```{r rq2-load-extract-24}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+# Load saved models when run_models = FALSE
+if (!params$run_models) {
+  for (x in outcomes$short) {
+    assign(paste0("fit_rq2_", x, "_24m"), readRDS(paste0("models/fit_rq2_", x, "_24m.rds")))
+    assign(paste0("fit_rq2_", x, "_partn_c_24m"), readRDS(paste0("models/fit_rq2_", x, "_partn_c_24m.rds")))
+    assign(paste0("fit_rq2_mg_", x, "_24m"), readRDS(paste0("models/fit_rq2_mg_", x, "_24m.rds")))
+    assign(paste0("fit_rq2_mg_", x, "_constr_24m"), readRDS(paste0("models/fit_rq2_mg_", x, "_constr_24m.rds")))
+    assign(paste0("lrt_rq2_mg_", x, "_24m"), readRDS(paste0("models/lrt_rq2_mg_", x, "_24m.rds")))
+  }
+}
 
 ### single-group lavaan models:
 # custom function for parameter extraction
@@ -6620,9 +7269,9 @@ extract_lav_rq2_24m <- function(fit_obj) {
   name_obj <- as.character(substitute(fit_obj))
   name_outc <- name_obj %>% 
     str_remove("fit_rq2_") %>% 
-    str_remove("_partn_c$") %>% 
+    str_remove("_partn_c") %>% 
     str_remove("_24m")
-  group_lab <- ifelse(str_detect(name_obj, "partn_c$"),
+  group_lab <- ifelse(str_detect(name_obj, "partn_c"),
                       "Consistently partnered",
                       "Consistently single")
   # use tidy() for extraction
@@ -6718,14 +7367,18 @@ rq2_summary_mg_24m <- rq2_summary_mg_24m %>%
 
 #### Model fit
 
-Fit statistics: single-group models
-```{r}
+Fit statistics: single-group models  
+-> These fit indices are very computationally expensive. I put them in a conditional chunk and load them as an RDS object in the next chunk.  
+
+```{r calc-fit-rq2-24m}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+if (params$run_expensive) { # only run when we allow this in YAML heading
 
 # model fit statistics: single-group models
 rq2_fit_single_24m <- outcomes$short %>% 
@@ -6745,19 +7398,35 @@ rq2_fit_single_24m <- outcomes$short %>%
                                   "Intermittently partnered"),
                        ordered = TRUE))
 
+# save externally:
+saveRDS(rq2_fit_single_24m, "model_fit/rq2_fit_single_24m.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq2-24m}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq2_fit_single_24m <- readRDS("model_fit/rq2_fit_single_24m.rds")
+
 rq2_fit_single_24m %>% select(-outc) %>% 
   select(outc_fct, group_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 Fit statistics: multi-group models (of consistently single & consistently partnered)
-```{r}
+```{r calc-fit-rq2-mg-24m}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+if (params$run_expensive) { # only run when we allow this in YAML heading
 
 # model fit statistics: multi-group models
 rq2_fit_mg_24m <- outcomes$short %>% 
@@ -6768,11 +7437,28 @@ rq2_fit_mg_24m <- outcomes$short %>%
   select(outc, nobs, npar, AIC, BIC, cfi, rmsea, srmr) %>% 
   mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE))
 
+# save externally:
+saveRDS(rq2_fit_mg_24m, "model_fit/rq2_fit_mg_24m.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq2-mg-24m}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq2_fit_mg_24m <- readRDS("model_fit/rq2_fit_mg_24m.rds")
+
 rq2_fit_mg_24m %>% 
-  select(-outc) %>% 
-  select(outc_fct, everything()) %>% 
+  select(-outc) %>% select(outc_fct, everything()) %>% 
   kable(digits = 3)
 ```
+
+::: {.callout-note appearance="minimal"}
+Overall, slightly better fit here compared to the 30-month version, esp. in the SRMR.
+:::
 
 #### Model diagnostics
 
@@ -6847,6 +7533,10 @@ rq2_mg_diagnostics_24m <- purrr::map_dfr(rq2_mg_models_24m, function(x) {
 rq2_mg_diagnostics_24m %>% kable(digits = 3)
 ```
 
+::: {.callout-note appearance="minimal"}
+All good here.
+:::
+
 #### Summary tables
 
 ##### Single-group models
@@ -6857,7 +7547,7 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1):
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -6874,17 +7564,13 @@ rq2_table_24m_a %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Very similar .
-:::
-
 Latent intercept-slope covariance: (cis) 
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -6901,17 +7587,13 @@ rq2_table_24m_cis %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
-
 Variances of the latent intercept and slope factors: (vi) & (vs)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -6928,17 +7610,13 @@ rq2_table_24m_v %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
-
 Age moderation of latent intercept and slope factors: (bi) & (bs)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -6955,10 +7633,6 @@ rq2_table_24m_b %>%
                        background = "lightgrey")
 ```
 
-::: {.callout-note appearance="minimal"}
-Significant ...
-:::
-
 ##### Multi-group models
 
 Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)  
@@ -6969,7 +7643,7 @@ Latent intercept and slope factors: "alpha0" (a0) & "alpha1" (a1)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -6987,7 +7661,9 @@ rq2_table_mg_24m_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Quite similar estimates, overall! The main difference for significance testing is that we also find significant slope differences in global anxiety here (at *p* < .05; this was *p* = .071 in the 30-month model). Partnered people decrease more in global anxiety than singles.  
+
+Otherwise, pretty similar. The 30-m. model tends to estimate somewhat larger attachment changes than the 24-m. model.  
 :::
 
 Latent intercept-slope covariance: (cis)  
@@ -6998,7 +7674,7 @@ Latent intercept-slope covariance: (cis)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -7016,7 +7692,7 @@ rq2_table_mg_24m_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Overall quite similar to the 30-months model.
 :::
 
 Variances of the latent intercept and slope factors: (vi) & (vs)  
@@ -7027,7 +7703,7 @@ Variances of the latent intercept and slope factors: (vi) & (vs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -7045,7 +7721,7 @@ rq2_table_mg_24m_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Overall quite similar, with a slight tendency of the 30-months model to estimate larger variances.
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)  
@@ -7056,7 +7732,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -7074,7 +7750,7 @@ rq2_table_mg_24m_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Very similar, not much evidence for age moderation. 
 :::
 
 #### Summary plot
@@ -7085,7 +7761,7 @@ Create plots for manuscript: start with extracting the parameters
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -7102,7 +7778,7 @@ plot_traject_df_rq2_24m <- bind_rows(plot_traject_list_rq2_24m)
 
 # Check extracted plotting dataframe
 head(plot_traject_df_rq2_24m)
-table(plot_traject_df_rq2_24m$outcome, plot_traject_df_rq2_24m$group)
+table(plot_traject_df_rq2_24m$outcome, plot_traject_df_rq2_24m$group, useNA = "always")
 
 # create factor variables:
 plot_traject_df_rq2_24m <- plot_traject_df_rq2_24m %>%
@@ -7148,10 +7824,13 @@ Create and save plot:
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
+#| output: false
 #| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+group_colors <- c("Consistently single" = "#008837", "Consistently partnered" = "#A23E48")
+group_linetypes <- c("Consistently single" = "solid", "Consistently partnered" = "longdash")
 
 # Plot RQ2 model-implied trajectories with 95% confidence bands
 plot_rq2_traject_24m <- ggplot(plot_traject_df_rq2_24m, aes(x = time_years, y = estimate, 
@@ -7163,7 +7842,7 @@ plot_rq2_traject_24m <- ggplot(plot_traject_df_rq2_24m, aes(x = time_years, y = 
   scale_fill_manual(values = group_colors) +
   scale_linetype_manual(values = group_linetypes) +
   facet_wrap(~outc_fct_label, ncol = 2, nrow = 5, scales = "free_y", dir = "v") +
-  ggh4x::facetted_pos_scales(y = y_scales_rq2) +
+  ggh4x::facetted_pos_scales(y = y_scales_rq2_24m) +
   labs(x = "Years since baseline", y = "Attachment domain (model-implied; 95% CI-band)", 
        colour = NULL, fill = NULL, linetype = NULL) +
   guides(colour = guide_legend(title = "Group"),
@@ -7194,6 +7873,10 @@ Show plot:
 
 plot_rq2_traject_24m
 ```
+
+::: {.callout-note appearance="minimal"}
+The trajectories look remarkably similar to the 30-month version across all domains! The main analytic difference concerns the significant evaluation for global anxiety. However, the trajectories themselves are still very similar (for the matching time period of the first 24 months, I mean).
+:::
 
 #### Full model results
 
@@ -7795,7 +8478,7 @@ broom::tidy(get(paste0("fit_rq2_mg_", outcomes$short[10], "_24m")), conf.int = T
 #| echo: true
 #| warning: false
 #| output: false
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -7869,7 +8552,7 @@ sa ~~ css*sw
 ')
 ```
 
-#### Template loop
+#### Template loop & extraction
 
 Run loop over all 5 X 2 outcomes  
 
@@ -7879,20 +8562,25 @@ Run loop over all 5 X 2 outcomes
 #| echo: true
 #| warning: false
 #| output: false
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+if (params$run_models) { # we can toggle this on/off in the YAML heading
+  
 # Loop across all attachment outcomes
 for (i in 1:length(outcomes$short)) {
   print(paste0("Running outcome: ", outcomes$maj[i]))
 
   # Fill bivariate LGCM template
   model_rq3_24m <- stringr::str_replace_all(rq3_template_24m, "outcome", outcomes$short[i])
+  
+  # Outcome-specific missingness indicator -> added this mostly for parent-specific attachment
+  missi_var <- paste0(outcomes$short[i], "_missi")
 
   # Fit model in consistently single people
   fit_rq3_24m <- lavaan::growth(model_rq3_24m,
-                                data = df_atta_wide_single_c,
+                                data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
                                 missing = "fiml",
                                 verbose = FALSE)
 
@@ -7900,16 +8588,26 @@ for (i in 1:length(outcomes$short)) {
   eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_24m")), fit_rq3_24m))
   saveRDS(fit_rq3_24m, file = paste0("models/fit_rq3_", outcomes$short[i], "_24m.rds"))
 }
+}
 ```
 
 Create summary table of all effects of interest: parameter extraction  
-```{r}
+
+```{r rq3-load-extract-24}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
+
+# Load saved models when run_models = FALSE
+if (!params$run_models) {
+  
+  for (x in outcomes$short) {
+    assign(paste0("fit_rq3_", x, "_24m"), readRDS(paste0("models/fit_rq3_", x, "_24m.rds")))
+  }
+}
 
 # custom function for parameter extraction from bivariate LGCMs
 # same function as above
@@ -7934,17 +8632,56 @@ rq3_summary_24m <- rq3_summary_24m %>%
                            labels = outcomes$maj, ordered = TRUE))
 ```
 
-#### Model fit
+For the preregistered effects of interest, I use lavaan::standardizedSolution(). For the cross-construct latent growth-factor covariances, standardization yields correlations rather than covariances. The standardized estimates have their own SEs, CIs, and p-values, which can differ slightly from those of the corresponding unstandardized covariances. This matches the preregistration: “The main effects of interest are the cross-construct intercept-slope correlations and slope-slope correlations.”  
 
-Fit statistics: 
+The standardized effect size is always the same as the est_std / std.all one from broom::tidy(), though.  
+
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
+rq3_models_24m <- c("fit_rq3_avoi_glo_24m", "fit_rq3_avoi_rom_24m",
+                "fit_rq3_avoi_fri_24m", "fit_rq3_avoi_mot_24m",
+                "fit_rq3_avoi_fat_24m", "fit_rq3_anxi_glo_24m",
+                "fit_rq3_anxi_rom_24m", "fit_rq3_anxi_fri_24m",
+                "fit_rq3_anxi_mot_24m", "fit_rq3_anxi_fat_24m")
+
+# Extract all RQ3 slope-slope correlations
+rq3_extracted_cross_24m <- bind_rows(lapply(rq3_models_24m, function(x) {
+  extract_rq3_cross_std(get(x), x) %>% 
+    mutate(outc = stringr::str_remove(outc, "_24m")) # added this here
+})) %>% 
+  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
+  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
+                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
+                             ordered = TRUE),
+         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
+                           levels = c("Avoidance", "Anxiety"),
+                           ordered = TRUE)) %>% 
+  as_tibble() %>% 
+  arrange(outc_fct, term) %>% 
+  select(outc_fct, term, est, ci_lo, ci_hi, p_value, domain_fct, pred_fct)
+```
+
+#### Model fit
+
+Fit statistics:  
+-> These fit indices are very computationally expensive. I put them in a conditional chunk and load them as an RDS object in the next chunk.  
+
+```{r calc-fit-rq3-24m}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+if (params$run_expensive) { # only run when we allow this in YAML heading
+  
 # model fit statistics: single-group models
 rq3_fit_single_24m <- outcomes$short %>% 
   purrr::map_dfr(function(x) {
@@ -7961,13 +8698,27 @@ rq3_fit_single_24m <- outcomes$short %>%
                                   "Intermittently partnered"),
                        ordered = TRUE))
 
+# save externally:
+saveRDS(rq3_fit_single_24m, "model_fit/rq3_fit_single_24m.rds")
+}
+```
+
+Show fit indices table: 
+```{r show-fit-rq3-24m}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+
+rq3_fit_single_24m <- readRDS("model_fit/rq3_fit_single_24m.rds")
+
 rq3_fit_single_24m %>% select(-outc) %>% 
   select(outc_fct, group_fct, everything()) %>% 
   kable(digits = 3)
 ```
 
 ::: {.callout-note appearance="minimal"}
-Pretty similar across outcomes, with 
+Again, somewhat better fit here compared to the 30-months model.  
 :::
 
 #### Model diagnostics
@@ -7985,12 +8736,6 @@ Pretty similar across outcomes, with
 #| code-summary: "Show the code"
 
 # diagnostics for all single-group and partnered RQ2 models
-rq3_models_24m <- c("fit_rq3_avoi_glo_24m", "fit_rq3_avoi_rom_24m",
-                "fit_rq3_avoi_fri_24m", "fit_rq3_avoi_mot_24m",
-                "fit_rq3_avoi_fat_24m", "fit_rq3_anxi_glo_24m",
-                "fit_rq3_anxi_rom_24m", "fit_rq3_anxi_fri_24m",
-                "fit_rq3_anxi_mot_24m", "fit_rq3_anxi_fat_24m")
-
 rq3_diagnostics_24m <- purrr::map_dfr(rq3_models_24m, function(x) {
   fit <- get(x)
   tibble(
@@ -8005,6 +8750,10 @@ rq3_diagnostics_24m <- purrr::map_dfr(rq3_models_24m, function(x) {
 rq3_diagnostics_24m %>% kable(digits = 3)
 ```
 
+::: {.callout-note appearance="minimal"}
+All good.  
+:::
+
 #### Summary tables
 
 Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alpha1" (a1 = attach, w1 = life sat): 
@@ -8013,7 +8762,7 @@ Latent intercept and slope factors: "alpha0" (a0 = attach, w0 = life sat) & "alp
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -8031,32 +8780,33 @@ rq3_table_24m_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar .
+Very similar to the 30-months model. This one estimates slightly less life satisfaction increases and less attachment changes (mostly decreases), which is roughly proportional to the shortening of the time window. 
 :::
 
 Latent intercept / slope variances & covariance - general terminology:  
 - (a) = attachment  
 - (w) = well-being (life satisf.)  
-- (c) = covariance  
+- (c) = covariance (or: correlation in the standardized solution)  
 - (v) = variance  
 - (i) = latent intercept  
 - (s) = latent slope   
 
-Cross-construct covariances (which are most relevant for the hypotheses):  
+Cross-construct correlations (which correspond to the hypotheses):  
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_table_24m_cross <- rq3_summary_24m %>% 
+rq3_table_24m_cross <- rq3_extracted_cross_24m %>% 
   filter(term %in% c("cii", "cis_aw", "cis_wa", "css")) %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std)
+  arrange(outc_fct, term) %>% 
+  mutate(group = "Consistently single", 
+         sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  select(outc_fct, group, term, est, ci_lo, ci_hi, p_value, sig)
 
 rq3_table_24m_cross %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -8066,26 +8816,29 @@ rq3_table_24m_cross %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Super similar intercept-intercept correlations (to the 30-m. model).  
+
+Also relatively similar intercept-slope correlations. (Here and there, an association slips above p < .05 threshold but no major differences in effect sizes).  
 :::
 
-Focus on parameter that is relevant to hypothesis: slope-slope covariance / correlation
+Focus on parameter that is relevant to hypothesis: slope-slope correlation (standardized solution)
 
 ```{r}
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
-rq3_summary_24m %>% 
+rq3_table_24m_cross %>% 
   filter(term=="css") %>% 
-  arrange(outc_fct, group_fct) %>% 
-  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig, est_std) %>% 
   knitr::kable(digits = 3)
 ```
+
+::: {.callout-note appearance="minimal"}
+Again, very similar correlations (to the 30-m. model).  
+:::
 
 Within-construct intercept-slope covariances:  
 
@@ -8093,7 +8846,7 @@ Within-construct intercept-slope covariances:
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -8111,7 +8864,7 @@ rq3_table_24m_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Very similar!
 :::
 
 Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
@@ -8120,7 +8873,7 @@ Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -8128,7 +8881,7 @@ rq3_table_24m_v <- rq3_summary_24m %>%
   filter(stringr::str_starts(term, "v")) %>% 
   arrange(outc_fct, group_fct, term) %>% 
   mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
-  select(outc_fct, group_fct, term, est, ci_lo, ci_hi, p_value, sig)
+  select(outc_fct, group_fct, term, est, ci_lo, ci_hi)
 
 rq3_table_24m_v %>% 
   knitr::kable(digits = 3, format = "html") %>% 
@@ -8138,7 +8891,7 @@ rq3_table_24m_v %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Overall, pretty similar but some differences in the slope variances.
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)
@@ -8147,7 +8900,7 @@ Age moderation of latent intercept and slope factors: (bi) & (bs)
 #| echo: true
 #| warning: false
 #| output: true
-#| cache: true
+#| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
@@ -8165,66 +8918,27 @@ rq3_table_24m_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant ...
+Highly similar!
 :::
 
 #### Summary plot
 
 We're plotting the standardized effects (i.e., slope-slope correlations).  
 
-Create plots for manuscript: start with extracting the parameters  
-
+Create and save plot:  
 ```{r}
 #| echo: true
 #| warning: false
-#| output: true
-#| cache: true
-#| code-fold: true
-#| code-summary: "Show the code"
-
-# Extract standardized slope-slope correlation and CI
-extract_rq3_css_std <- function(fit_obj, name_obj) {
-  name_outc <- name_obj %>% 
-    stringr::str_remove("fit_rq3_") %>% 
-    stringr::str_remove("_partn_c$|_partn_i$")
-  
-  lavaan::standardizedSolution(fit_obj, ci = TRUE) %>% 
-    filter(label == "css") %>% 
-    mutate(outc = name_outc,
-           est = est.std,
-           ci_lo = ci.lower,
-           ci_hi = ci.upper) %>% 
-    select(outc, est, ci_lo, ci_hi, p_value = pvalue)
-}
-
-# Extract all RQ3 slope-slope correlations
-rq3_plot_css_24m <- bind_rows(lapply(rq3_models_24m, function(x) {
-  extract_rq3_css_std(get(x), x) %>% 
-    mutate(outc = stringr::str_remove(outc, "_24m")) # added this here
-})) %>% 
-  mutate(outc_fct = factor(outc, levels = outcomes$short, labels = outcomes$maj, ordered = TRUE)) %>% 
-  mutate(domain_fct = factor(str_remove(outc_fct, "^(Avoidance|Anxiety): "), 
-                             levels = c("Global", "Romantic", "Best Friend", "Mother", "Father"),
-                             ordered = TRUE),
-         pred_fct = factor(str_extract(outc_fct, "^(Avoidance|Anxiety)"), 
-                           levels = c("Avoidance", "Anxiety"),
-                           ordered = TRUE))
-```
-
-Create and save plot: 
-```{r}
-#| echo: true
-#| warning: false
-#| output: true
+#| output: false
 #| cache: false
 #| code-fold: true
 #| code-summary: "Show the code"
 
 # Plot standardized slope-slope correlations
-plot_rq3_css_24m <- ggplot(rq3_plot_css_24m, aes(x = est, 
-                                         y = forcats::fct_rev(domain_fct),
-                                         colour = forcats::fct_rev(pred_fct), 
-                                         shape = forcats::fct_rev(pred_fct))) +
+plot_rq3_css_24m <- ggplot(rq3_extracted_cross_24m %>% filter(term=="css"), 
+                           aes(x = est, y = forcats::fct_rev(domain_fct),
+                               colour = forcats::fct_rev(pred_fct), 
+                               shape = forcats::fct_rev(pred_fct))) +
   geom_rect(data = bg_df_rq3,
             aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = NULL),
             inherit.aes = FALSE,
@@ -8268,6 +8982,10 @@ Show plot:
 
 plot_rq3_css_24m
 ```
+
+::: {.callout-note appearance="minimal"}
+Nothing changes in terms of significance evaluation (compared to the 30-m. model). Slightly smaller correlation for romantic avoidance, though. 
+:::
 
 #### Full model results
 

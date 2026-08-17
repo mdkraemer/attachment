@@ -53,6 +53,7 @@ rsconnect/
 data/
 figures/
 models/
+model_fit/
 02_analyses_files/
 
 # renv
