@@ -241,11 +241,13 @@ df_atta_wide_single_partn_i <- bind_rows(df_atta_wide_single_c, df_atta_wide_par
 
 # sample descriptives
 df_atta_rq1 %>% 
+  filter(!is.na(age_base) & !is.na(man)) %>% # 4 missings in gender & age
   summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
             m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
 
 # by group:
 df_atta_rq1 %>% 
+  filter(!is.na(age_base) & !is.na(man)) %>% # 4 missings in gender & age
   group_by(group_fct_rq1) %>% 
   summarise(n = n(), N = n_distinct(pid), fem = round(mean(woman, na.rm=T)*100,2), 
             m_age = round(mean(age_base, na.rm=T), 2), sd_age = round(sd(age_base, na.rm=T), 2)) %>% kable(digits = 2)
@@ -263,6 +265,7 @@ df_atta_rq1 %>%
 #| code-fold: true
 
 education_table <- df_atta_rq1 %>%
+  filter(!is.na(age_base) & !is.na(man)) %>% # 4 missings in gender & age
   filter(!is.na(education)) %>%
   count(education, name = "n") %>%
   mutate(
@@ -318,6 +321,7 @@ education_table_by_group %>% kable(digits = 2)
 #| code-fold: true
 
 religion_table <- df_atta_rq1 %>%
+  filter(!is.na(age_base) & !is.na(man)) %>% # 4 missings in gender & age
   filter(!is.na(religion)) %>%
   count(religion, name = "n") %>%
   mutate(percent = round(100 * n / sum(n), 2))
@@ -345,6 +349,7 @@ religion_table_by_group %>% kable(digits = 2)
 #| code-fold: true
 
 politics_table <- df_atta_rq1 %>%
+  filter(!is.na(age_base) & !is.na(man)) %>% # 4 missings in gender & age
   mutate(politics = factor(ifelse(is.na(politics), "NA", politics),
                            levels = c("Libertarian", "Very Conservative", "Conservative",
                                       "Slightly Conservative", "Moderate/middle-of-the-road",
@@ -1746,6 +1751,18 @@ This proportion doesn't increase consistently because this reflects the underlyi
 From prereg: "In the sample of single people at baseline, we will run logistic regression models (with a logit link function) with consistent singlehood (0 = no, initially single but later find partner, 1 = yes, consistently single) as the outcome and both attachment anxiety and avoidance as predictors, which will be z-standardized. We will also include age and gender as control variables. Thus, we will run joint models for anxiety and avoidance but separate models for global attachment and each domain of attachment (i.e., in total 5 models with different attachment domains)."  
 
 Logistic regression = pure between-person comparison  
+
+```{r}
+#| echo: true
+#| cache: false
+#| warning: false
+
+table(df_atta_rq1$single_consist, useNA = "always")
+
+# few more missings in gender & age:
+summary(df_atta_rq1$age_base)
+table(df_atta_rq1$man, useNA = "always")
+```
 
 ### Global attachment
 

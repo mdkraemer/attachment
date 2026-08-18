@@ -143,6 +143,8 @@ df_atta %>%
     summarise(mean_n = mean(n), median_n = median(n),
               min_n = min(n), max_n = max(n))
 
+df_atta %>% summarise(n = n(), N = n_distinct(pid))
+
 # example case:
 df_atta %>% 
   filter(pid==666) %>% 
