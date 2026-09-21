@@ -40,7 +40,6 @@ renv::restore() # to revert to the previous state as encoded in the lockfile
 # (1)
 quarto::quarto_render("01_clean_data.qmd",
                       output_file = "01_clean_data.html", output_format="html")
-
 # around 1 min computation time for me
 
 ### Run analysis scripts and generate html report
@@ -48,8 +47,9 @@ quarto::quarto_render("01_clean_data.qmd",
 # (2)
 quarto::quarto_render("02_analyses.qmd",
                       output_file = "02_analyses.html", output_format="html") 
-
-# around 2 min computation time for me
+# this one takes a long time (because of the SEMs); I always ran it overnight; ~17 hours run time
+# -> all models and model fit objects are saved and can be re-imported in subsequent renders
+# -> see YAML header of this .qmd script to toggle this on/off! 
 
 # If this throws an error message, open the script within the R-Project and run by hand
 

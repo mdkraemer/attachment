@@ -193,7 +193,7 @@ for (outcome in outcome_vars_missi) {
   df_atta_wide[[paste0(outcome, "_missi")]] <-
     as.integer(rowSums(is.na(df_atta_wide[, wave_vars])) == 30)
 }
-# I checked: these missingness indicators are relevant for friend- (n=1), mother- (n=374), and father-specific attachment (n=623) variables (same for avoidance and anxiety)
+# I checked: these missingness indicators are relevant for friend- (n=1), mother- (n=405), and father-specific attachment (n=661) variables (same for avoidance and anxiety)
 
 # no additional missings in life satisfaction
 table(df_atta_wide$swb_missi, useNA = "always")
@@ -372,6 +372,60 @@ politics_table_by_group <- df_atta_rq1 %>%
   ungroup()
 
 politics_table_by_group %>% kable(digits = 2)
+```
+
+### Descriptives in each group
+
+Show means/SD: avoidance vars
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# need the rq1 data but not z-standardized...
+df_atta_rq1_descr <- df_atta %>%
+  filter(time_month_rd==0 & pid %in% (df_atta_rq1 %>% pull(pid) %>% unique())) %>% 
+  filter(!is.na(age_base) & !is.na(man)) %>% # to match the later analysis sample size
+  left_join(df_atta_rq1 %>% select(pid, group_fct_rq1))
+
+df_atta_rq1_descr %>% 
+  group_by(group_fct_rq1) %>% 
+  summarise(
+    n = n(),
+    `Avoid.: Global`      = sprintf("%.2f (%.2f)", mean(avoi_glo, na.rm = TRUE), sd(avoi_glo, na.rm = TRUE)),
+    `Avoid.: Romantic`    = sprintf("%.2f (%.2f)", mean(avoi_rom, na.rm = TRUE), sd(avoi_rom, na.rm = TRUE)),
+    `Avoid.: Best Friend` = sprintf("%.2f (%.2f)", mean(avoi_fri, na.rm = TRUE), sd(avoi_fri, na.rm = TRUE)),
+    `Avoid.: Mother`      = sprintf("%.2f (%.2f)", mean(avoi_mot, na.rm = TRUE), sd(avoi_mot, na.rm = TRUE)),
+    `Avoid.: Father`      = sprintf("%.2f (%.2f)", mean(avoi_fat, na.rm = TRUE), sd(avoi_fat, na.rm = TRUE)),
+    `LS`      = sprintf("%.2f (%.2f)", mean(swb, na.rm = TRUE), sd(swb, na.rm = TRUE))
+  ) %>%
+  kable()
+```
+
+Show means/SD: anxiety vars
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+df_atta_rq1_descr %>% 
+  group_by(group_fct_rq1) %>% 
+  summarise(
+    n = n(),
+    `Anxie.: Global`      = sprintf("%.2f (%.2f)", mean(anxi_glo, na.rm = TRUE), sd(anxi_glo, na.rm = TRUE)),
+    `Anxie.: Romantic`    = sprintf("%.2f (%.2f)", mean(anxi_rom, na.rm = TRUE), sd(anxi_rom, na.rm = TRUE)),
+    `Anxie.: Best Friend` = sprintf("%.2f (%.2f)", mean(anxi_fri, na.rm = TRUE), sd(anxi_fri, na.rm = TRUE)),
+    `Anxie.: Mother`      = sprintf("%.2f (%.2f)", mean(anxi_mot, na.rm = TRUE), sd(anxi_mot, na.rm = TRUE)),
+    `Anxie.: Father`      = sprintf("%.2f (%.2f)", mean(anxi_fat, na.rm = TRUE), sd(anxi_fat, na.rm = TRUE)),
+    `LS`      = sprintf("%.2f (%.2f)", mean(swb, na.rm = TRUE), sd(swb, na.rm = TRUE))
+  ) %>%
+  kable()
 ```
 
 ## Longitudinal sample
@@ -724,7 +778,7 @@ df_distr_plot_avoi_16_20 <- df_atta %>%
     values_to = "value") %>% 
   mutate(
     variable = factor(variable, levels = c(avoi_short, "swb"), labels = c(avoi_maj, "Life Satisfaction")), # relabel
-    wave = factor(wave, levels = c(16:20), paste0("M", c(16:20)))
+    wave = factor(wave, levels = c(16:20), labels = paste0("M", c(16:20)))
   )
 ```
 
@@ -1866,7 +1920,7 @@ df_summa_sel_logist <- bind_rows(
   broom::tidy(sel_rom, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Romantic", n_obs = nobs(sel_rom)),
   broom::tidy(sel_fri, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Best Friend", n_obs = nobs(sel_fri)),
   broom::tidy(sel_mot, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Mother", n_obs = nobs(sel_mot)),
-  broom::tidy(sel_fat, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Father", , n_obs = nobs(sel_fat)))
+  broom::tidy(sel_fat, conf.int = T, conf.level = .95, exponentiate = TRUE) %>% mutate(domain = "Father", n_obs = nobs(sel_fat)))
 
 df_summa_sel_logist <- df_summa_sel_logist %>% 
   mutate(domain_fct = factor(domain, 
@@ -2065,14 +2119,16 @@ model_rq2_avoi_glo_example <- stringr::str_replace_all(rq2_template, "outcome", 
 
 # fit the models - 1 model for single, 1 for partnered
 fit_rq2_avoi_glo_example <- lavaan::growth(model_rq2_avoi_glo_example, data = df_atta_wide_single_c, 
-                                           missing = "fiml", verbose = FALSE)
+                                           missing = "fiml", 
+                                           em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                           verbose = FALSE)
 summary(fit_rq2_avoi_glo_example, fit.measures = TRUE, standardized = TRUE, ci = FALSE)
 ```
 
 ::: {.callout-note appearance="minimal"}
 A few warning messages appear:  
-- 1 case is dropped because of a missing value in age. This is no problem -> N = 592 now. (as an exogenous variable, missingsness in age is not handled with FIML)  
-- Low coverage at later time points: this was to be expected, with increased dropout and up to 30 months of data (e.g., 84% missingness at t20, and 92% at t29). I think it's no big issue here, given that the model still converged, produced no implausible estimates, and resulted in decent fit indices (at least in the traditional ones; some of the "robust" ones could not be estimated properly...)  
+- 1 case is dropped because of a missing value in age. This is no problem -> N = 622 now. (as an exogenous variable, missingness in age is not handled with FIML)  
+- Low coverage at later time points: this was to be expected, with increased dropout and up to 30 months of data (e.g., 84% missingness at t20, and 93% at t29). I think it's no big issue here, given that the model still converged, produced no implausible estimates, and resulted in decent fit indices (at least in the traditional ones; some of the "robust" ones could not be estimated properly...)  
 - EM estimated variance-covariance matrix (Sigma) is (near) singular: also not surprising given the data structure and missingness -> lavInspect(fit_rq2_avoi_glo_example, "post.check") indicates TRUE, meaning that the final fitted model covariance structure is admissible  
 - In pchisq(x2, df = df, ncp = ncp) : NaNs produced -> This may relate to some of the (robust) chi-square based fit statistics.  
 
@@ -2088,7 +2144,9 @@ Now show results for partnered:
 #| cache: true
 
 fit_rq2_avoi_glo_partn_c_example <- lavaan::growth(model_rq2_avoi_glo_example, data = df_atta_wide_partn_c, 
-                                           missing = "fiml", verbose = FALSE)
+                                           missing = "fiml", 
+                                           em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                           verbose = FALSE)
 summary(fit_rq2_avoi_glo_partn_c_example, fit.measures = TRUE, standardized = TRUE, ci = FALSE)
 ```
 
@@ -2161,7 +2219,9 @@ model_rq2_mg_avoi_glo_example <- stringr::str_replace_all(rq2_template_multi, "o
 fit_rq2_mg_avoi_glo_example <- lavaan::growth(model_rq2_mg_avoi_glo_example,
                                       data = df_atta_wide_single_partn_c %>% arrange(group_fct),
                                       group = "group_fct",
-                                      missing = "fiml", verbose = FALSE)
+                                      missing = "fiml", 
+                                      em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                      verbose = FALSE)
 ```
 
 ::: {.callout-note appearance="minimal"}
@@ -2205,6 +2265,7 @@ fit_rq2_mg_avoi_glo_constr <- lavaan::growth(model_rq2_mg_avoi_glo_constr,
                                                   data = df_atta_wide_single_partn_c %>% arrange(group_fct),
                                                   group = "group_fct",
                                                   missing = "fiml",
+                                             em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
                                                   verbose = FALSE)
 ```
 
@@ -2251,13 +2312,17 @@ for (i in 1:length(outcomes$short)) {
   model_rq2 <- stringr::str_replace_all(rq2_template, "outcome", outcomes$short[i])
   fit_rq2 <- lavaan::growth(model_rq2,
                             data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
-                            missing = "fiml", verbose = FALSE)
+                            missing = "fiml", 
+                            em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                            verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i])), fit_rq2))
   saveRDS(fit_rq2, file = paste0("models/fit_rq2_", outcomes$short[i], ".rds"))
   
   fit_rq2_partn_c <- lavaan::growth(model_rq2,
                             data = df_atta_wide_partn_c %>% filter(.data[[missi_var]] == 0),
-                            missing = "fiml", verbose = FALSE)
+                            missing = "fiml", 
+                            em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                            verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_c")), fit_rq2_partn_c))
   saveRDS(fit_rq2_partn_c, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_c.rds"))
 
@@ -2268,7 +2333,9 @@ for (i in 1:length(outcomes$short)) {
                                   data = df_atta_wide_single_partn_c  %>% filter(.data[[missi_var]] == 0) %>%
                                     arrange(group_fct),
                                   group = "group_fct",
-                                  missing = "fiml", verbose = FALSE)
+                                  missing = "fiml", 
+                                  em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                  verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i])), fit_rq2_multi))
   saveRDS(fit_rq2_multi, file = paste0("models/fit_rq2_mg_", outcomes$short[i], ".rds"))
 
@@ -2279,7 +2346,9 @@ for (i in 1:length(outcomes$short)) {
                                          data = df_atta_wide_single_partn_c  %>% filter(.data[[missi_var]] == 0) %>%
                                            arrange(group_fct),
                                          group = "group_fct",
-                                         missing = "fiml", verbose = FALSE)
+                                         missing = "fiml", 
+                                         em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                         verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_constr")), fit_rq2_multi_constr))
   saveRDS(fit_rq2_multi_constr, file = paste0("models/fit_rq2_mg_", outcomes$short[i], "_constr.rds"))
 
@@ -2620,7 +2689,7 @@ rq2_table_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Descriptively, there are some slope differences across groups, for example, Avoidance (Romantic) and Avoidance (Mother). We test these diffs below for significance.
+Descriptively, there are some slope differences across groups, for example, Avoidance (Romantic), Anxiety (Best Friend), and Avoidance (Mother). We test these diffs below for significance.
 :::
 
 Latent intercept-slope covariance: (cis) 
@@ -2703,7 +2772,7 @@ rq2_table_b %>%
 ::: {.callout-note appearance="minimal"}
 Rather inconsistent evidence for age moderation but a few significant effects emerge:  
 - Anxiety: Global and Anxiety: Romantic decreases (see slopes above...) in consistently partnered people are less pronounced with older age.  
-- Anxiety: Mother and Anxiety: Father decreases in consistently single people are more pronounced with older age.  
+- Anxiety: Mother and Anxiety: Father decreases in consistently single people (and to a lesser extent, partnered people) are more pronounced with older age.  
 :::
 
 #### Multi-group models
@@ -2735,8 +2804,11 @@ rq2_table_mg_a %>%
 
 ::: {.callout-note appearance="minimal"}
 Very similar slope estimates compared to the single-group models above.  
-- Only one domain was tested as significant in their slope group differences: Avoidance (Mother). Here, consistently single people decreases more strongly than partnered people.   
-- For Avoidance: Romantic it's relatively close (*p* = .067) but in the opposite direction as we expected. Over time, singles decreased more than partnered people in their romantic avoidance (... they also started out higher).  
+
+A few slope differences emerge as significant (at *p* < .05):  
+- For Avoidance (Mother), consistently single people decrease more strongly than partnered people.   
+- For Avoidance (Romantic), it's in the opposite direction as we expected (... but very close to the signif. threshold). Over time, singles decreased more than partnered people in their romantic avoidance, and they also started out higher.  
+- For Anxiety (Best Friend), singles decreased more than partnered people over time (again, pretty close to .05 threshold). Partnered people are mostly stable but singles decrease.  
 :::
 
 Latent intercept-slope covariance: (cis)  
@@ -2959,7 +3031,15 @@ plot_rq2_traject
 ```
 
 ::: {.callout-note appearance="minimal"}
-No support for our hypotheses and overall only very limited evidence that consistently single vs. partnered people change differently in their attachment over time. Some of the gaps are still quite sizeable, reflecting baseline differences and potentially selection effects - especially for global avoidance and anxiety as well as romantic avoidance and anxiety. Also, somewhat of a gap in friend-specific anxiety. Single people are less securely attached in these domains throughout.
+No support for our hypothesis. Overall, only limited evidence that consistently single vs. partnered people change differently in their attachment over time. Some of the gaps are still quite sizeable, reflecting baseline differences and potentially selection effects - especially for global avoidance and anxiety as well as romantic avoidance and anxiety.  
+
+However, there are a few significant differences in change:  
+- romantic avoidance  
+- mother-specific avoidance  
+- friend-specific anxiety  
+Here, single people generally decreased slightly more strongly in attachment insecurity. For romantic avoidance a sizable gap remains but for friend-specific anxiety single and partnered people become more similar, almost closing the gap.  
+
+(Mother-specific avoidance is a bit different: although the slopes differ the most here, both groups are still quite similar across the intervention period if we take the confidence bands into account...).  
 :::
 
 ### Full model results
@@ -3652,7 +3732,9 @@ model_rq3_avoi_glo_example <- stringr::str_replace_all(rq3_template, "outcome", 
 # Fit model
 fit_rq3_avoi_glo_example <- lavaan::growth(model_rq3_avoi_glo_example,
                                            data = df_atta_wide_single_c,
-                                           missing = "fiml", verbose = FALSE)
+                                           missing = "fiml", 
+                                           em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                           verbose = FALSE)
 ```
 
 ::: {.callout-note appearance="minimal"}
@@ -3705,6 +3787,7 @@ for (i in 1:length(outcomes$short)) { # we can toggle this on/off in the YAML he
   fit_rq3 <- lavaan::growth(model_rq3,
                             data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
                             missing = "fiml",
+                            em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
                             verbose = FALSE)
 
   # Save model object
@@ -3940,7 +4023,7 @@ rq3_table_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Life satisfaction increases that are very similar across models (roughly *d* = .31 when standardized; a bit larger in the mother/father models). The attachment changes match the estimates from the univariate models relatively closely (and are all significant).  
+Life satisfaction increases that are very similar across models (roughly *d* = .32 when standardized; a bit larger in the mother/father models). The attachment changes match the estimates from the univariate models relatively closely (and are all significant).  
 :::
 
 Latent intercept / slope variances & covariance - general terminology:  
@@ -3978,12 +4061,13 @@ rq3_table_cross %>%
 ::: {.callout-note appearance="minimal"}
 The intercept-intercept correlations are all negative and significant (*p* < .001): With higher attachment insecurity (both avoidance and anxiety), people have lower life satisfaction.  
 
-The intercept-slope correlations are a bit more varied but mostly not significant. Exceptions are that:  
+The intercept-slope correlations are a bit more varied but mostly not significant. Exceptions are the following (... although most are pretty close to *p* < .05 threshold):  
 - Single people with higher initial life satisfaction decreased (even) more in global attachment avoidance.  
+- Single people with higher initial global attachment anxiety, increased more in life satisfaction.
 - Single people with higher initial life satisfaction increased more in mother-specific attachment anxiety (or decreased less).  
 - Single people with higher initial father-specific attachment anxiety, increased more in life satisfaction.  
 
-For slope-slope correlations, see below!  
+For interpretation of slope-slope correlations, see below!  
 :::
 
 Focus on parameter that is relevant to hypothesis: slope-slope correlation (standardized solution)
@@ -4002,7 +4086,7 @@ rq3_table_cross %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Slope-slope correlations indicate negative co-development of attachement insecurity and life satisfaction that is significant for all domains, except for friend-specific attachment avoidance (*r* = -0.045). Otherwise, correlations range from *r* = -0.188 (romantic attachment avoidance) to *r* = -0.393 (global attachment avoidance).  
+Slope-slope correlations indicate negative co-development of attachement insecurity and life satisfaction that is significant for all domains, except for friend-specific attachment avoidance (*r* = -0.038). Otherwise, correlations range from *r* = -0.189 (mother-specific anxiety) to *r* = -0.388 (global attachment avoidance).  
 
 This supports our hypothesis for global and romantic attachment. (Rest of the domains were exploratory)  
 :::
@@ -4031,7 +4115,7 @@ rq3_table_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Only some of the attachment intercept-slope covariances are significant, but none for life satisfaction. Not super important für our RQs but it generally seems that people who start out higher in attachment insecurity then decrease more over time. 
+Only some of the attachment intercept-slope covariances are significant, but none for life satisfaction. Not super important for our RQs but it generally seems that people who start out higher in attachment insecurity then decrease more over time (more room to improve?). 
 :::
 
 Variances of the latent intercept and slope factors: (via, viw) & (vis, vws)  
@@ -4086,6 +4170,8 @@ rq3_table_b %>%
 
 ::: {.callout-note appearance="minimal"}
 Age moderation of intercepts and slopes are mostly not significant. A few exceptions for intercept and slope of Anxiety: Mother, as well as slope of Anxiety: Father and intercept of Avoidance: Mother.  
+
+No significant age moderation of intercepts and slopes of life satisfaction!  
 
 Not really that relevant for us. We just use these as control variables.  
 :::
@@ -4164,7 +4250,7 @@ plot_rq3_css
 ```
 
 ::: {.callout-note appearance="minimal"}
-Hypothesis of co-development between singles' global and friend-specific attachment and life satisfaction is mostly supported, except for friend-specific attachment avoidance (no sig. corr.). Changes in romantic attachment are also comparatively slightly less strongly related to changes in life satisfaction, although still significant.  
+Hypothesis of co-development between singles' global and friend-specific attachment and life satisfaction is mostly supported, except for friend-specific attachment avoidance (no sig. corr.). Changes in romantic attachment avoidance are comparatively slightly less strongly related to changes in life satisfaction, although still significant.  
 
 This only shows results in the single people's group. For a (descriptive) group comparison plot, see below in the exploratory analyses.  
 :::
@@ -4424,7 +4510,9 @@ for (i in 1:length(outcomes$short)) {
   model_rq2 <- stringr::str_replace_all(rq2_template, "outcome", outcomes$short[i])
   fit_rq2_partn_i <- lavaan::growth(model_rq2,
                                      data = df_atta_wide_partn_i %>% filter(.data[[missi_var]] == 0),
-                                     missing = "fiml", verbose = FALSE)
+                                     missing = "fiml", 
+                                    em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                    verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_i")), fit_rq2_partn_i))
   saveRDS(fit_rq2_partn_i, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_i.rds"))
   
@@ -4435,7 +4523,9 @@ for (i in 1:length(outcomes$short)) {
                                      data = df_atta_wide_single_partn_i %>% filter(.data[[missi_var]] == 0) %>%
                                        arrange(group_fct),
                                      group = "group_fct",
-                                     missing = "fiml", verbose = FALSE)
+                                     missing = "fiml", 
+                                     em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                     verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_si")), fit_rq2_multi_si))
   saveRDS(fit_rq2_multi_si, file = paste0("models/fit_rq2_mg_", outcomes$short[i], "_si.rds"))
   
@@ -4446,7 +4536,9 @@ for (i in 1:length(outcomes$short)) {
                                             data = df_atta_wide_single_partn_i %>% filter(.data[[missi_var]] == 0) %>%
                                               arrange(group_fct),
                                             group = "group_fct",
-                                            missing = "fiml", verbose = FALSE)
+                                            missing = "fiml", 
+                                            em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                            verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_si_constr")), fit_rq2_multi_si_constr))
   saveRDS(fit_rq2_multi_si_constr, file = paste0("models/fit_rq2_mg_", outcomes$short[i], "_si_constr.rds"))
   
@@ -4860,6 +4952,8 @@ Compared to consistently single people, intermittently partnered people decrease
 
 It looks a bit different for mother-specific attachment avoidance: here, consistently single people decreased more over time than intermittently partnered people did. However, overall both groups are quite close to each other throughout (see confidence bands). This is also quite similar to our result comparing consistently single to consistently partnered people.     
 
+In addition, there's a slight difference for change in global attachment avoidance: single people decrease to a slightly larger extent compared to partnered people (not enough to offset the baseline gap, though; see plot below).  
+
 No significant differences in slopes among the other domains. Level differences are quite pronounced for global avoidance (anxiety a bit less so) as well as friend-specific avoidance and anxiety.   
 :::
 
@@ -5075,7 +5169,11 @@ plot_rq2_traject_partn_i
 ```
 
 ::: {.callout-note appearance="minimal"}
-Main difference with the intermittently partnered group: Significant differences in romantic attachment, where intermittently partnered people start out more insecure (than the consistently partnered) but then become more secure, again, over time and to a greater extent that the consistently single people. This likely reflects the influence of forming new relationship(s).
+Main difference with the intermittently partnered group: Significant differences in romantic attachment, where intermittently partnered people start out more insecure (than the consistently partnered) but then become more secure, again, over time and to a greater extent that the consistently single people. This concerns both romantic avoidance and anxiety and likely reflects the influence of forming new relationship(s).  
+
+Additionally, there's the same effect we saw in the confirmatory comparison for mother-specific avoidance. Not sure if this should be interpreted that strongly...  
+
+And we see consistently single people decrease slightly more strongly in global avoidance that the intermittently partnered people. However, this is only a slight difference and not sufficient to "close the gap" over time.  
 :::
 
 ### Full model results
@@ -5536,6 +5634,7 @@ for (i in 1:length(outcomes$short)) {
   fit_rq3_partn_c <- lavaan::growth(model_rq3,
                                     data = df_atta_wide_partn_c %>% filter(.data[[missi_var]] == 0),
                                     missing = "fiml",
+                                    em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
                                     verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_partn_c")), fit_rq3_partn_c))
   saveRDS(fit_rq3_partn_c, file = paste0("models/fit_rq3_", outcomes$short[i], "_partn_c.rds"))
@@ -5544,6 +5643,7 @@ for (i in 1:length(outcomes$short)) {
   fit_rq3_partn_i <- lavaan::growth(model_rq3,
                                     data = df_atta_wide_partn_i %>% filter(.data[[missi_var]] == 0),
                                     missing = "fiml",
+                                    em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
                                     verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq3_", outcomes$short[i], "_partn_i")), fit_rq3_partn_i))
   saveRDS(fit_rq3_partn_i, file = paste0("models/fit_rq3_", outcomes$short[i], "_partn_i.rds"))
@@ -5766,7 +5866,7 @@ rq3_fit_partn_i %>% select(-outc) %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Somewhat better fit here in both groups than in the confirmatory models with the single people. Sample size is more than double here, though. That may play a role.     
+Somewhat better fit here in both groups than in the confirmatory models with the single people. Sample size is much larger here, though. That may play a role.     
 :::
 
 ### Model diagnostics
@@ -5857,7 +5957,7 @@ rq3_table_partn_c_a %>%
 ::: {.callout-note appearance="minimal"}
 Compared to the consistently single people, the consistently partnered people have higher life satisfaction (intercept) and also increase more in life satisfaction (slope).  
 
-In most attachment domains (esp. global & romantic), consistently partnered people are more securely attached (lower avoidance and anxiety). Descriptively, consistently single people also become more securely attached at higher rates than partnered people in most domains, but as we saw above, these differences are only seldomly significant. 
+In most attachment domains (esp. global & romantic), consistently partnered people are more securely attached (lower avoidance and anxiety). Descriptively, consistently single people also become more securely attached at higher rates than partnered people in most domains, but as we saw above, these differences are only significant a few times. 
 :::
 
 Latent intercept / slope variances & covariance - general terminology:  
@@ -5943,7 +6043,9 @@ rq3_table_partn_c_cis %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Here, in the consistently partnered people, all covariances for attachment domains are significant (and negative). With higher baseline attachment insecurity people decreased to a greater extent in attachment insecurity over time.  
+Here, in the consistently partnered people, all covariances for attachment domains are significant (and negative). With higher baseline attachment insecurity, people decreased to a greater extent in attachment insecurity over time.  
+
+None are significant for life satisfaction.  
 
 For singles, this was only the case for some of them and notably not for global and romantic avoidance. Otherwise, no strong differences here.  
 :::
@@ -5974,7 +6076,7 @@ rq3_table_partn_c_v %>%
 ::: {.callout-note appearance="minimal"}
 Overall, slightly less variance in attachment slopes in consistently partnered vs. consistently single people. But no huge differences.  
 
-In addition, consistently partnered people display greater heterogeneity in life satisfaction levels and slopes than singles.  
+In addition, consistently partnered people display lower heterogeneity in life satisfaction levels and slopes than singles.  
 :::
 
 Age moderation of latent intercept and slope factors: (bi) & (bs)
@@ -6091,8 +6193,9 @@ rq3_extracted_cross_partn_i %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Biggest differences to the consistently single people:  
+Some differences to the consistently single people:  
 - slope-slope correlation is also significant for friend-specific avoidance in the intermittently partnered people  
+- slope-slope correlation is n.s. for mother-specific anxiety in the intermittently partnered people  
 - co-development with romantic avoidance is considerably larger in the intermittently partnered people  
 :::
 
@@ -6306,7 +6409,7 @@ plot_rq3_css_partn_i
 ```
 
 ::: {.callout-note appearance="minimal"}
-Significant, negative slope-slope correlations in all attachment domains, except for mother-specific anxiety. Strongest correlations for romantic and global attachment. However, the romantic slope-slope correlations are slightly less pronounced than in the consistently single group. 
+Significant, negative slope-slope correlations in all attachment domains, except for mother-specific anxiety. Strongest correlations for romantic and global attachment. However, the romantic slope-slope correlations are slightly less pronounced than in the consistently partnered group. 
 :::
 
 #### All three groups together!
@@ -6952,6 +7055,33 @@ rq2_lmer_slopes %>%
 Quite similar to the lavaan() LGCM! The significance testing is bit more liberal here compared to the LRT method (matching *p* < .10 in the LRTs...). Effect sizes are also quite similar. Main difference probably lies in the FIML method for dealing with missingness which is not applied here in the MLM.
 :::
 
+What about differences in intercepts (at baseline)?  
+
+Evaluate 'single' main effect for statistical significance:  
+
+```{r}
+#| echo: true
+#| warning: false
+#| output: true
+#| cache: false
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# baseline group differences
+rq2_lmer_baseline_diff <- rq2_lmer_summary %>% 
+  filter(term == "single") %>% 
+  select(outc, outc_fct, est, ci_lo, ci_hi, p_value, n_persons, n_obs)
+
+rq2_lmer_baseline_diff %>% select(-1) %>% 
+  mutate(sig = case_when(p_value < .001 ~ "***", p_value < .01 ~ "**", p_value < .05 ~ "*", TRUE ~ "")) %>% 
+  relocate(sig, .after = p_value) %>% 
+  kable(digits = 3)
+```
+
+::: {.callout-note appearance="minimal"}
+Significant baseline group differences in all attachment domains, except for father-specific anxiety. Largest for romantic anxiety, also quite sizable for global and romantic avoidance and global and friend-specific anxiety.  
+:::
+
 ### Summary plot
 
 Construct df for plot: 
@@ -7067,9 +7197,9 @@ plot_rq2_traject_lmer
 ```
 
 ::: {.callout-note appearance="minimal"}
-These trajectories look remarkably similar to the SEM/lavaan ones. At first glance, the biggest difference is maybe the tiny difference in the singles' slope for father-specific anxiety.   
+These trajectories look remarkably similar to the SEM/lavaan ones. At first glance, the biggest difference is maybe the tiny difference in the singles' slope for father-specific anxiety (but almost not noticeable).   
 
-The significance evaluation is slightly different here and a bit more liberal (this is typical, in my experience). Therefore, we also get significant slope differences (i.e., cross-level interactions) for global anxiety and romantic avoidance.  
+The significance evaluation is also quite here, perhaps a bit more liberal (this is typical, in my experience). Therefore, we get significant slope differences (i.e., cross-level interactions) for romantic avoidance, mother-specific avoidance, and friend-specific anxiety.  
 :::
 
 ## LGCM but only up to 24 months 
@@ -7217,13 +7347,17 @@ for (i in 1:length(outcomes$short)) {
   model_rq2_24m <- stringr::str_replace_all(rq2_template_24m, "outcome", outcomes$short[i])
   fit_rq2_24m <- lavaan::growth(model_rq2_24m,
                                 data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
-                                missing = "fiml", verbose = FALSE)
+                                missing = "fiml", 
+                                em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_24m")), fit_rq2_24m))
   saveRDS(fit_rq2_24m, file = paste0("models/fit_rq2_", outcomes$short[i], "_24m.rds"))
   
   fit_rq2_partn_c_24m <- lavaan::growth(model_rq2_24m,
                                         data = df_atta_wide_partn_c %>% filter(.data[[missi_var]] == 0),
-                                        missing = "fiml", verbose = FALSE)
+                                        missing = "fiml", 
+                                        em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                        verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_", outcomes$short[i], "_partn_c_24m")), fit_rq2_partn_c_24m))
   saveRDS(fit_rq2_partn_c_24m, file = paste0("models/fit_rq2_", outcomes$short[i], "_partn_c_24m.rds"))
 
@@ -7234,7 +7368,9 @@ for (i in 1:length(outcomes$short)) {
                                       data = df_atta_wide_single_partn_c %>% filter(.data[[missi_var]] == 0) %>% 
                                         arrange(group_fct),
                                       group = "group_fct",
-                                      missing = "fiml", verbose = FALSE)
+                                      missing = "fiml", 
+                                      em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                      verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_24m")), fit_rq2_multi_24m))
   saveRDS(fit_rq2_multi_24m, file = paste0("models/fit_rq2_mg_", outcomes$short[i], "_24m.rds"))
 
@@ -7245,7 +7381,9 @@ for (i in 1:length(outcomes$short)) {
                                              data = df_atta_wide_single_partn_c %>% filter(.data[[missi_var]] == 0) %>% 
                                                arrange(group_fct),
                                              group = "group_fct",
-                                             missing = "fiml", verbose = FALSE)
+                                             missing = "fiml", 
+                                             em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
+                                             verbose = FALSE)
   eval(call("<-", as.name(paste0("fit_rq2_mg_", outcomes$short[i], "_constr_24m")),
             fit_rq2_multi_constr_24m))
   saveRDS(fit_rq2_multi_constr_24m, file = paste0("models/fit_rq2_mg_", 
@@ -7474,7 +7612,7 @@ rq2_fit_mg_24m %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Overall, slightly better fit here compared to the 30-month version, esp. in the SRMR.
+Overall, better fit here compared to the 30-month version, esp. in the SRMR. Easier for lavaan to deal with fewer time points and lower rater of missingness (for FIML).
 :::
 
 #### Model diagnostics
@@ -7678,9 +7816,9 @@ rq2_table_mg_24m_a %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Quite similar estimates, overall! The main difference for significance testing is that we also find significant slope differences in global anxiety here (at *p* < .05; this was *p* = .071 in the 30-month model). Partnered people decrease more in global anxiety than singles.  
+Quite similar estimates, overall! The main difference for significance testing is that we also find significant slope differences in global avoidance here (at *p* = .048; this was *p* = .052 in the 30-month model) but not in romantic avoidance (*p* = .093; this was *p* = .048 in the 30-month model). These p-values are all close to the threshold, anyways.   
 
-Otherwise, pretty similar. The 30-m. model tends to estimate somewhat larger attachment changes than the 24-m. model.  
+Otherwise, highly similar intercepts and pretty similar slopes. The 30-m. model tends to estimate somewhat larger attachment changes than the 24-m. model, which makes sense because the slope coefs give estimates across the entire period.  
 :::
 
 Latent intercept-slope covariance: (cis)  
@@ -7767,7 +7905,7 @@ rq2_table_mg_24m_b %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Very similar, not much evidence for age moderation. 
+Very similar, not very consistent evidence for age moderation. 
 :::
 
 #### Summary plot
@@ -7892,7 +8030,7 @@ plot_rq2_traject_24m
 ```
 
 ::: {.callout-note appearance="minimal"}
-The trajectories look remarkably similar to the 30-month version across all domains! The main analytic difference concerns the significant evaluation for global anxiety. However, the trajectories themselves are still very similar (for the matching time period of the first 24 months, I mean).
+The trajectories look remarkably similar to the 30-month version across all domains! The main analytic difference concerns the significance evaluation for global avoidance and romantic avoidance. However, the trajectories themselves are still highly similar (for the matching time period of the first 24 months, I mean).
 :::
 
 #### Full model results
@@ -8599,6 +8737,7 @@ for (i in 1:length(outcomes$short)) {
   fit_rq3_24m <- lavaan::growth(model_rq3_24m,
                                 data = df_atta_wide_single_c %>% filter(.data[[missi_var]] == 0),
                                 missing = "fiml",
+                                em.h1.args = list(max_iter = 5000), # to increase chance that H1 EM algorithm converges properly
                                 verbose = FALSE)
 
   # Save model object
@@ -8854,7 +8993,7 @@ rq3_table_24m_cross %>%
 ```
 
 ::: {.callout-note appearance="minimal"}
-Again, very similar correlations (to the 30-m. model).  
+Again, very similar correlations (to the 30-m. model). Same significance evaluation.  
 :::
 
 Within-construct intercept-slope covariances:  
@@ -9001,7 +9140,7 @@ plot_rq3_css_24m
 ```
 
 ::: {.callout-note appearance="minimal"}
-Nothing changes in terms of significance evaluation (compared to the 30-m. model). Slightly smaller correlation for romantic avoidance, though. 
+Nothing changes in terms of significance evaluation (compared to the 30-m. model). Correlation effect sizes also highly similar.  
 :::
 
 #### Full model results
