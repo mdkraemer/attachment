@@ -50,10 +50,10 @@ po/*~
 rsconnect/
 
 # custom folders
-data/
-figures/
-models/
-model_fit/
+data/raw/
+#figures/
+#models/
+#model_fit/
 02_analyses_files/
 
 # renv

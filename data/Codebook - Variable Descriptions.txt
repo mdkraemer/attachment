@@ -1,0 +1,1254 @@
+===================================================================================
+CODEBOOK and PROJECT OVERVIEW
+R. Chris Fraley
+===================================================================================
+
+
+Project:
+
+	Collaborative Research: Separating transient and enduring forms of
+	change in adult attachment styles
+
+
+Investigators:
+
+	R. Chris Fraley
+	Omri Gillath
+	Pascal Deboeck
+
+
+Research Goal:
+
+	The primary objectives of this research are to better understand continuity and change in 
+	attachment styles, and, specifically, the extent to which various life events lead
+	to enduring vs. transient changes in attachment.
+
+Method:
+
+	Participants completed a survey on attachment, personality, and
+	life events once a month for up to 24 months total. This design allows us to map
+	continuity and change BEFORE specific events take place as well as AFTER those
+	events take place. 
+
+
+Data:
+
+	Data are stored in several deidentified objects/files. With few exceptions, the variable labels 
+	described below should be similar across the long vs. wide files, although the wave suffix 
+	is omitted from	variable names in the long forms.
+
+	Core/Full Data
+
+		  The core data files represent all the data to date (as of the most recent backup). These
+		  should be treated as archival files. (Data analytic files are the "explore" and
+		  "confirm" files described below.)
+
+		  data2wide.txt 
+			
+			Person by variable matrix. All longitudinal/repeated-measures assessments are 
+			represented in columns labeled with suffix _XX for assessment wave (01 - 24)
+
+			Format: Tab-delimited text file. NA for missing values.
+
+		  data2long.txt
+			
+			Longform version of the data. Each row represents an assessment wave
+			for a given person. Waves are nested within persons. Each person
+			has 24 rows, even if the person hasn't completed 24 assessments.
+			Between-persons non-repeated measures (see below) are simply copied
+			across the 24 waves. A variable/col named 'time' appears first that
+			simply indexes the rows for each person. "user_id" represents the 
+			unique ID number associated with each person (observations/rows are
+			nested within person).
+
+			Format: Tab-delimited text file. NA for missing values.
+
+	Exploratory and Confirmatory Data Subsets
+
+		  The full data files are further split into exploratory and confirmatory subsets.
+		  This is done for two reasons. First, for the purposes of registering data-analytic plans
+		  and scripts, it will be helpful to have an exploratory/test sample to ensure that the 
+		  code is working appropriately before full analyses are conducted. Second, because
+		  the data set is complex and involves multiple measurements, there are many potential questions
+		  that can be addressed. Doing so with an exploratory sample allows investigators to examine
+		  the data for any number of purposes. Anything uncovered in such explorations that investigators
+		  wish to pursue further should then be registered and evaluated independently 
+		  in the cross-validation/hold-out/confirmatory sample.
+
+		  I thought it would be best to demarcate these subsets a priori, before data collection is complete. 
+		  The exploratory sample was created by sampling 300 cases at random from the first 2000 cases. 
+		  The randomization seed was set to the NSF grant number for reproducibility purposes 
+		  (set.seed(1423874)). The exploratory, both wide and long form, samples are based on 
+		  these 300 cases; the confirmatory samples (wide and long) are based on the remaining cases. 
+		  
+		  The contents of these data sets will evolve in the backup folder as cases
+		  are added and people continue to participate in longitudinal followups. Nonetheless,
+		  the specific cases/people to be included in each subsample is *fixed* before data collection
+		  is completed.
+
+
+		  explore2wide.txt and confirm2wide.txt
+			
+			Person by variable matrix. All longitudinal/repeated-measures assessments are 
+			represented in columns labeled with suffix _XX for assessment wave (01 - 24).
+			For exploratory (explore) or confirmatory analyses (confirm).
+
+			Format: Tab-delimited text file. NA for missing values.
+
+		  explore2long.txt and confirm2long.txt
+			
+			Longform version of the data. Each row represents an assessment wave
+			for a given person. Waves are nested within persons. Each person
+			has 24 rows, even if the person hasn't completed 24 assessments.
+			Between-persons non-repeated measures (see below) are simply copied
+			across the 24 waves. A variable/col named 'time' appears first that
+			simply indexes the rows for each person. "user_id" represents the 
+			unique ID number associated with each person (observations/rows are
+			nested within person).
+			
+			For exploratory (explore) or confirmatory analyses (confirm).
+
+			Format: Tab-delimited text file. NA for missing values.
+
+
+
+
+Notes:
+
+	Oct 20, 2017
+
+		This is the first draft of the code book. I (Fraley) have shared the files with Co-PIs 
+		partly because I'm building scripts that allow these files to be automatically
+		generated from the raw SQL files and wanted to test those out. The data files, 
+		however, are not yet complete and should not be used for data-analysis purposes. 
+		Nonetheless, these files should provide some insights into the structure of the data that we will 
+		be using when data-collection is complete, and might be helpful for brainstorming
+		analytic scripts that can be archived or registered for data analysis.
+
+		As of this date, the number of cases in data2wide is 6734 and the file is 
+		6734 x 3680. data2long is 161616 x 162.
+
+		The sample size (6734) should not increase much form this point forward. I have stopped 
+		inviting people to the paid study (as of Oct 13, 2017) and am focusing instead on incentivizing
+		those who are already enrolled to continue their participation. Nonetheless, a few people
+		may continue to join as they read older recruitment emails.
+
+	Oct 31, 2017
+		
+		I backed up the data again and cleaned up some of the scripts for doing so. Current data2wide 
+		file is 6750 x 3704. long file is 162000 x 164. Experimenting with adding new ways of 
+		representing time.
+
+	Nov 9, 2017
+
+		I backed up the data. data2wide = 6761 x 3704. data2long = 162264 x 163.
+
+	Nov 13, 2017
+
+		Added a method of creating exploratory and confirmatory/hold-out samples that
+		is invariant across further data collection and backup methods. These will be
+		useful in the future as we begin to plan analytic scripts.
+
+	Nov 16, 2017
+
+		Added some of the variables from the random survey. (At each assessment, a 
+		survey was selected at random from a pool of surveys and admininstered.)
+		More often than not, this was the WHOTO. But, occasionally, something else
+		was administed (e.g., a set of items Omri shared, the NPI).
+		
+	Nov 29, 2017
+
+		Backed up the data. data2wide = 6771 x 4048. data2long = 162504 x 210.
+
+		Added new variables to the long version of the data. These variables (e.g., eventba01) 
+		represent for each person whether the assessment wave occurred prior to (0) or after (1)
+		the first occurrence of an event. These variables exist for each of the 25 events. 
+
+	Jan 17, 2018
+
+		Backed up the data. data2wide = 6794 x 4048. data2long = 163056 x 210.
+
+	Mar 06, 2018
+
+		Backed up the data. data2wide = 6812 x 4048. data2long = 163488 x 210.
+
+	Apr 10, 2018
+
+		Backed up the data. data2wide = 6815 x 4048. data2long = 163560 x 210.
+
+	May 15, 2018
+
+		Backed up the data. data2wide = 6826 x 4048. data2long = 163824 x 210.
+
+	July 10, 2018
+
+		Backed up the data. data2wide = 6841 x 4048. data2long = 164184 x 210.
+
+	Oct  3, 2018
+
+		Backed up the data. data2wide = 6866 x 4048. data2long = 164784 x 212.
+
+		This represents the "frozen state" of the data from the server, which were downloaded
+		on Sept 30, 2018, per the registration materials on the OSF project page. 
+		It is possible that I will add some additional variables to this file to 
+		facilitate data sharing, but those will be based on the raw data extracted on 
+		Sept 30, 2018.
+		
+		Because people may continue to complete surveys without payment, data collection will 
+		be on-going. For the purposes of existing pre-registered projects, however, the Sept 30 
+		state of the data is the "final" version.
+
+		This backed up version contains some new codings of time. The codebook has been
+		updated accordingly. 
+
+
+
+
+Variable names and explanations, roughly in order (but not fully) in which 
+variables appear in the files.
+===================================================================================
+BACKGROUND INFORMATION ABOUT PARTICIPANTS
+Non-repeated Measures
+===================================================================================
+
+"time" (long form files only)
+
+	A simple index, starting at 0 and ending at 23, that represents the assessment
+	wave for the person in question. Each person has 24 rows regardless of whether
+	the person completed 24 assessments.
+
+"user_id"               
+
+	This is the identification number used to link a person's data across multiple SQL databases
+	during data collection. Each participant has a unique user_id. The number itself has
+	no intrinsic meaning.
+
+
+"registration_date"     
+
+	Date the user account was created (i.e., when the user activated the account by submitting
+	an email address). This date may or may not be the same as submission_date below because
+	the user might not have completed the survey on the same day that the account was created
+	(e.g., perhaps the registration email didn't arrive in a timely fashion).
+
+
+"sex"                   
+
+	"Are you male or female?" 
+
+		0 = female
+		1 = male
+		NA = no response
+
+
+"birthyear" or "age" (depending on the file)    
+
+	"In what year were you born? "
+
+	Option selected from pull-down menu, ranging from 1915 to 2007
+
+	Internal reminder: In original SQL file, this is called 'age'. 
+
+
+"country"     
+
+	"What is your country of residence?"
+
+	Pull-down menu. Most salient options (at top of list, outside of
+	alphabetical listing but also listed in ABC list) are "United States," 
+	"Canada", "United Kingdom", and "China". 
+	
+	All participants in the paid sample are from the United States; this 'variable' should not 
+	actually vary.
+
+
+"ethnicity"
+
+	"How would you describe your ethnicity? "
+
+	Answers are free responses and will need to be coded to be used meaningfully.
+
+
+"wave"
+
+	Current Assessment Wave
+
+	This records which assessment wave the respondent will be completing the next time
+	he or she logs in. The total number of assessments a person *has* completed
+	is 1 minus this value.
+
+
+"age2"     
+
+	An estimate of the user age.
+
+	This is an internal calculation based on subtracting users' birthyears from
+	the registration dates. It is an imperfect estimate because we are only 
+	attending to birth years and not birth months (which were not recorded).
+
+
+
+"social_network2"
+"mastery2"
+"resilience2"
+"cog_flex2"
+
+	Cognitive, Social, and Psychological Resources
+
+	These are composites based on items Omri included in the assessments. 
+	The full survey was administed occasionally, and, as such, there may
+	be repeated measures for some people (see below). But these measures
+	were included largely as a way to examine how various factors might
+	predict the direction and magnitude of change over time in other constructs.
+	Thus, they are included here as between-persons variables. The compilation script
+	extracts the scores from the FIRST administration of the survey for the purposes
+	of creating these between-persons (level 2) variables.
+
+	social_network2
+		
+		A composite based on the number of social relations people report.
+		Example item:
+		How many family members or relatives can you talk to about things personal to you?
+		Each item rated on a 0 to 9 scale.
+
+	mastery2 
+
+		The Sense of Mastery Scale (Dalgard et al., 2007). 
+		Example items:
+		"I have little control over the things that happen to me. " 
+		"Sometimes I feel that I'm pushed around in life. "
+		Each item rated on a 1 (strongly disagree) to 5 (strongly agree) scale.
+				
+	
+	resilience2
+
+		Brief Resilience Scale (Sinclair, V. G., & Wallston, K. A. (2004)
+		Example items:
+		"I tend to bounce back quickly after hard times" 
+		"I have a hard time making it through stressful events"   
+		Each item rated on a 1 (strongly disagree) to 5 (strongly agree) scale.
+
+	cog_flex2
+
+		Cognitive Flexibility Scale (Martin & Rubin, 1995) 
+		Example items:
+		"I avoid new and unusual situations. "
+		"I seldom have choices when deciding how to behave. "
+		"I am willing to listen and consider alternatives for handling a problem. "
+		Each item rated on a 1 (strongly disagree) to 5 (strongly agree) scale.
+
+
+
+"npi2"
+"npi_leadership2"
+"npi_exhibitionism2"
+"npi_vanity2"
+
+	Narcissism
+
+	Narcissism was assessed with the Narcisistic Personality Inverntory  (NPI)
+	Raskin, R.; Terry, H. (1988). "A principal-components analysis of the Narcissistic Personality 
+	Inventory and further evidence of its construct validity". 
+	Journal of Personality and Social Psychology, Vol 54(5), 890-902.
+
+	This was included to examine both age/cohort and time (longitudinal) changes
+	in narcissism, although that isn't a key focus of the project. Thus, the occasional
+	repeated-measures are important and are discussed more below. Nonetheless, these specific scores 
+	are also included here as between-persons scores in case they are helpful. For this purpose, 
+	the script extracts the scores from the FIRST administration of the survey.
+
+
+	npi2 
+		Total (sum score) narcissism score
+
+	npi_leadership2
+		
+		Sum score based on leadership items
+
+	npi_exhibitionism2
+		
+		Sum score based on exhibition items
+
+	npi_vanity2
+		
+		Sum score based on vanity items
+
+
+
+
+
+
+===================================================================================
+BACKGROUND INFORMATION ABOUT PARTICIPANTS
+Repeated Measures
+===================================================================================
+
+
+The following set of variables come from the Background Information section of the survey.
+When a user has registered and completes his or her first survey, the user is immediately
+directed to a Background Information section that asks basic demographic questions.
+
+The answers to these questions can be changed at any time (i.e., at repeated assessments)
+by navigating to the Background Information section and updating the answers. Moreover,
+users are often prompted to do so explictly when certain life events are reported that seem
+relevant (e.g., losing a job, breaking up). 
+
+The responses here are stored as separate waves, using the variable naming convention
+of variable_01 - variable_24 for waves 1 through 24. The existing info is simply copied
+across assessments unless it was manually changed by the user. Given that many of these
+variables are unlikely to change (but CAN change) it might be best to 
+regard these as between-person variables and use the first assessment (i.e., 
+variable_01) for most analytic purposes. But, if one is interested in their change, 
+the repeated-wave data are available here.
+
+--------------------------------------------------------------------------------------
+
+"education_01" - "education_24"  
+
+	Education level
+
+
+	Instructions:
+	"Please describe your highest educational level:
+
+	Pull-down menu with the following options:
+	<option >Some High School
+	<option >Currently in High School
+	<option >Completed High School
+	<option >Some College/University
+	<option >Currently in College/University
+	<option >Completed College/University
+	<option >Some Graduate/Professional School
+	<option >Currently in Graduate/Professional School
+	<option >Completed Graduate/Professional Degree
+
+	Coded as 1 - 9, respectively
+
+
+
+"religion_01" - "religion_24"
+
+	Religious identification.
+
+	Instructions:
+	"Among the options below, which best describes your religious affiliation NOW?"
+
+	<option value='noneselected' >Please choose one</option>
+	<option value='Buddhist' >Buddhist</option>
+	<option value='Christian Catholic or Orthodox' >Christian: Catholic or Orthodox</option>
+	<option value='Protestant' >Christian: Protestant or other</option>
+	<option value='Hindu' >Hindu</option>
+	<option value='Jewish' >Jewish</option>
+	<option value='Muslim' >Muslim</option>
+	<option value='No religion' >No religion</option>
+	<option value='Other' >Other</option>
+
+	Coded as character/factor
+
+
+"politics_01" - "politics_24" 
+
+	Political views 
+	
+	Instructions:
+
+	"When it comes to politics, do you usually think of yourself as liberal, 
+	moderate, conservative, or something else? (The terms used in your country 
+	may differ. 'Liberal' is intended to include the Left, progressives, 
+	and in some countries socialists. 'Conservative' is intended to 
+	include the Right, traditionalists, and in some 
+	countries Christian Democrats.)"
+
+	
+	<OPTION value='noneselected' >Please choose one
+	<OPTION value='Very Liberal' >Very Liberal
+	<OPTION value='Liberal' >Liberal
+	<OPTION value='Slightly Liberal' >Slightly Liberal
+	<OPTION value='Moderate/middle-of-the-road' >Moderate/middle-of-the-road
+	<OPTION value='Slightly Conservative' >Slightly Conservative
+	<OPTION value='Conservative' >Conservative
+	<OPTION value='Very Conservative' >Very Conservative
+	<OPTION value='Do not know/not political' >Do not know/not political
+	<OPTION value='Libertarian' >Libertarian
+	<OPTION value='Other' >Other
+
+	Coded as a character/factor
+
+
+
+"libcon_01" - "libcon_24"     
+
+
+	Political ideology: Liberal vs. Conservative
+ 
+
+	Internal computation; not an item.
+	
+	Political ideology is coded on a 1 to 7 scale to reflect 1 (Very Conservative) to 7
+	(Very Liberal) in the response options (i.e., politics01-24) above. 'Libertarian', 
+	'not political', etc. are coded	as NA/missing.
+
+
+
+"momalive_01"- "momalive_24"   
+
+	Mother Living
+
+	"Is your mother alive?" 
+	0 = No
+	1 = Yes
+
+	This (and the next question about fathers) is used to modulate the way questions are asked about
+	attachment. Because participants may have lost a parent during the course of the study, this
+	variable has the potential to vary within-persons.
+
+
+"dadalive_01"- "dadalive_24" 
+
+	Father Living
+
+	"Is your father alive?"
+	0 = No
+	1 = Yes
+
+
+"partnersex_01"-"partnersex_24"
+
+	This is only asked if the user has indicated that he or she is in a relationship.
+	(see the 'involved' variable)
+
+	"Is your partner male or female? "
+	0 = Female
+	1 = Male
+
+
+"ses_01"-"ses_24"  
+
+	Subjective Social-Economic Status
+
+	Instructions
+
+	"Think of this ladder, to the right, as representing where people stand 
+	in your country.
+
+	At the top of the ladder are the people who are the best 
+	off -- those who have the most money, the most education, and the most 
+	respected jobs. At the bottom are the people who are the worst off -- those 
+	who have the least money, least education, and the least respected jobs 
+	or no job. The higher up you are on this ladder, the closer you are to 
+	the people at the very top; the lower you are, the closer you are to 
+	the people at the very bottom.
+
+	Where would you place yourself on this ladder?
+
+	Please click the step corresponding to the position on the ladder 
+	where you think you stand at this time in your life, compared to 
+	people in your country." 
+
+	An image of a ladder is shown, with radio buttons next to the rungs.
+	Responses are on a 1 to 10 scale, with 10 being the top rung of the ladder
+	and 1 being the lowest rung.
+
+
+"involved_01"-"involved_24" 
+
+	Relationship Status
+	 
+	 "Are you currently in an exclusive romantic (dating/marital) relationship?"
+	 0 = No
+	 1 = Yes, I am dating someone
+	 2 = Yes, I am married
+
+
+"involved2_01"-"involved2_24"  
+
+	Binary Relationship Status
+
+	This is an internal recoding of the item above.
+	0 = not in a relationship
+	1 = in a relationship (combines responses 1 and 2 above)
+
+
+"employed_01" - "employed_24"   
+
+	"Are you currently employed?" 
+	0 = No
+	1 = Yes
+
+
+
+
+===================================================================================
+PSYCHOLOGICAL AND LIFE EVENT VARIABLES
+Repeated Measures
+===================================================================================
+
+
+
+"avoide_01" - "avoide_24"   
+"avoida_01" - "avoida_24"  
+"avoidb_01" - "avoidb_24"    
+"avoidc_01" - "avoidc_24"    
+"avoidd_01" - "avoidd_24"     
+"anxietye_01" - "anxietye_24"   
+"anxietya_01" - "anxietya_24"    
+"anxietyb_01" - "anxietyb_24"    
+"anxietyc_01" - "anxietyc_24"    
+"anxietyd_01" - "anxietyd_24" 
+
+
+	Experiences in Close Relationships - Relationships Structures (ECR-RS)
+	Attachment Styles
+
+	Fraley, R. C., Heffernan, M. E., Vicary, A. M., & Brumbaugh, C. C. (2011). The Experiences 
+	in Close Relationships-Relationship Structures questionnaire: A method for 
+	assessing attachment orientations across relationships. 
+	Psychological Assessment, 23, 615-625.
+
+
+	The following sets of variables represent people's attachment avoidance (avoid)
+	and attachment anxiety (anxiety) scores across five relationship domains:
+
+	e = general
+	a = mother
+	b = father
+	c = romantic partner
+	d = best friend
+
+	Thus, avoide, for example, is avoidance in general and anxietyc is attachment
+	anxiety with romantic partners. The numeric suffix represents the assessment
+	wave (01 - 24) in the wide files. All composites should be on a 1 (low) to 
+	5 (high) scale.
+
+
+
+	Procedural notes: 
+	
+	For the general items, which appeared first, the following instructions were used:
+	"Please read each of the following statements and rate the extent to 
+	which you believe each statement best describes your feelings 
+	about <B>close relationships in general</B>."
+
+	For the relationship-specific questions, people were giving the following instructions: 
+	"Please rate the extent to which you agree or disagree with these items with 
+	respect to <TARGET>" where TARGET was mother, father, partner, or best friend.
+
+	If people reported being in a romantic relationship, 
+	we asked them to rate the items with respect to their partner. If the person was not
+	in a relationship, we asked them to reflect on how they think they would feel
+	in a relationship (see below).
+
+		"You indicated previously that you are not involved in a romantic (dating/marital) relationship. 
+		If that is still correct, <I>please imagine</I> how you think you would feel and behave 
+		in a romantic relationship. If you are currently involved in a relationship that you 
+		were not involved in previously, please rate how you feel with respect to that individual."
+
+	If a parent is not alive (demographics), the ECR-RS items are not administered 
+	for that parent. Thus, a person will have missing data for avoida and anxietya if that
+	person's mother was not living.
+
+
+
+"saam_anx_01" - "saam_anx_24"           
+"saam_avo_01" - "saam_avo_24"           
+"saam_sec_01" - "saam_sec_24"        
+
+	State Adult Attachment Measure (SAAM)
+
+	Gillath, O., Hart, J., Noftle, E. E., & Stockdale, G. D. (2009). Development and 
+	validation of a state adult attachment measure (SAAM). Journal of 
+	Research in Personality, 43, 362-373.
+
+	Assesses the extent to which people currently (at the time of the assessment)
+	feel anxious (saam_anx), avoidant (saam_avo), or secure (saam_sec) with 
+	respect to attachment. The composites are based on an abbreviated version of the 
+	full SAAM scale, using 3 items per scale.
+
+	Instructions
+	"The following statements concern how you feel <B>right now</B>. 
+	Please respond to each statement by indicating how much you agree or disagree 
+	with it as it reflects your <B>current</B> feelings. Please 
+	select the response that best indicates how you feel at the 
+	moment. 
+	
+	Item stem: "Right now . . ."
+
+	Items used: 
+	"I feel loved","I feel like I have someone to rely on","
+	I feel secure and close to other people","I really need someone's emotional support",
+	"I really want to feel loved right now","I want to share my feelings with someone",
+	"If someone tried to get close to me, I would try to keep my distance",
+	"I feel like I am loved by others but I really don't care ",
+	"I'm afraid someone will want to get too close to me"
+
+
+
+
+"swb_01" - "swb_24"   
+
+	Subjective Well-Being
+
+	Five-item composite  of well-being by Diener and colleagues.
+
+	Diener, E., Emmons, R. A., Larsen, R. J., & Griffin, S. (1985). The 
+	Satisfaction with Life Scale. Journal of Personality Assessment, 49, 71-75.
+
+
+	Items used:
+	"In most ways my life is close to my ideal.",
+	"The conditions of my life are excellent.",
+	"I am satisfied with my life.",
+	"So far I have gotten the important things I want in life.",
+	"If I could live my life over, I would change almost nothing."
+
+
+
+
+"sise_01" - "sise_24"        
+
+	Single-Item Self-Esteem Scale 
+
+	Robins, R. W., Hendin, H. M., & Trzesniewski, K. H. (2001). Measuring global 
+	self-esteem: Construct validation of a single-item measure 
+	and the Rosenberg Self-Esteem Scale. 
+	Personality and social psychology bulletin, 27(2), 151-161.
+
+
+	"I have high self-esteem" rated on a 1 (Strongly disagree) to 
+	5 (strongly agree) scale.
+
+
+
+"health_01" - "health_24"  
+
+	Single item health measure
+
+	"I am in good health." rated on a 1 (Strongly disagree) to 
+	5 (strongly agree) scale.
+
+
+"stress_01" - "stress_24"             
+
+	Single-item stress measure
+
+	"I have been experiencing a lot of stress lately."
+	
+	Rated on a 1 (Strongly disagree) to 
+	5 (strongly agree) scale.
+
+
+
+"rusbult_com_01"  - "rusbult_com_24"        
+"rusbult_satis_01" - "rusbult_satis_24"      
+"rusbult_alts_01" - "rusbult_alts_24"       
+"rusbult_invest_01" - "rusbult_invest_24"
+
+
+	Investment Model Scale
+
+	Rusbult, C. E., Martz, J. M., & Agnew, C. R. (1998). The investment model scale: 
+	Measuring commitment level, satisfaction level, quality of alternatives, and 
+	investment size. Personal relationships, 5(4), 357-387.
+
+
+	Shortened to 12 items, 3 per scale. Assesses four domains of relationship functioning:
+
+	Commitment (rusbult_com)
+	Satisfaction (rusbult_satis)
+	Quality of Alternatives (rusbult_alts)
+	Investments (rusbult_invest)
+
+
+	Instructions
+	
+	"Please rate these items with respect to <B>how you view your relationship 
+	with $partner_name right now</B>. It is okay if the answers you 
+	provide now are different than answers you have provided in the 
+	past."
+
+	Procedural note:
+
+	This scale is only administered if the respondent was in a relationship at the 
+	assessment wave in question.
+
+
+
+
+
+
+
+
+"ipipe_01" - "ipipe_24"             
+"ipipa_01" - "ipipa_24"              
+"ipipc_01" - "ipipc_24"              
+"ipipn_01" - "ipipn_24"             
+"ipipo_01" - "ipipo_24"
+
+
+	Personality Traits - Mini-IPIP
+	
+	These are composite/mean scores for measures of extraversion (e), agreeableness (a), 
+	conscientiousness (c), neuroticism (n), and openness to experience (o)
+
+	Donnellan, M. B., Oswald, F. L., Baird, B. M., & Lucas, R. E. (2006). The Mini-IPIP scales: 
+	Tiny-yet-effective measures of the Big Five factors of personality. 
+	Psychological Assessment, 18, 192-203.
+
+	Instructions
+	"Please use the rating scale below to describe how accurately each statement 
+	describes you. Describe yourself as you generally are now, not as you wish to be in the future. 
+	Describe yourself as you honestly see yourself, in relation to other people you know 
+	of the same sex as you are, and roughly your same age. "
+	
+	1: Very Inaccurate
+	2: Moderately Inaccurate
+	3: Neither Inaccurate nor Accurate
+	4: Moderately Accurate
+	5: Very Accurate
+
+
+
+"event01_01" - "event01_24"            
+"event02_01" - "event02_24"            
+"event03_01" - "event03_24"            
+"event04_01" - "event04_24"            
+"event05_01" - "event05_24"            
+"event06_01" - "event06_24"            
+"event07_01" - "event07_24"            
+"event08_01" - "event08_24"            
+"event09_01" - "event09_24"            
+"event10_01" - "event10_24"            
+"event11_01" - "event11_24"            
+"event12_01" - "event12_24"            
+"event13_01" - "event13_24"            
+"event14_01" - "event14_24"            
+"event15_01" - "event15_24"            
+"event16_01" - "event16_24"            
+"event17_01" - "event17_24"            
+"event18_01" - "event18_24"            
+"event19_01" - "event19_24"            
+"event20_01" - "event20_24"            
+"event21_01" - "event21_24"            
+"event22_01" - "event22_24"            
+"event23_01" - "event23_24"            
+"event24_01" - "event24_24"            
+"event25_01" - "event25_24" 
+
+	Life Events
+
+	Participants were asked whether 25 life events or experiences had taken place
+	since the last assessment. These were answered in a binary way using checkboxes. 
+	  0 = no checkmark
+	  1 = yes/checkmark
+	
+	Variables event01_XX - event25_XX represent whether the events below were reported by the participant as
+	having taken place since the last assessment wave. All responses default to No (0) unless the
+	respondent indicates that the event took place (1). The events are organized below by broad, intuitive 
+	categories. This is the same order in which the events were listed on the survey. (Please note, however,
+	that the numbers within this listing are not sequential. The variables are ordered by number 
+	in the data base and not in the way they are listed below.) 
+
+	Instructions
+	"Please indicate which of the following events have taken place [TIME SINCE LAST SURVEY]. You may select 
+	more than one event."
+	(If this is the first assessment wave, the time cue above is replaced with "in the past month.")
+
+
+
+	# HEALTH
+		event01 = "I was ill or sick"
+		event02 = "I had to visit the Emergency Room"
+
+	# SCHOOL or JOB
+		event03 = "I lost or quit my job"
+		event04 = "I retired"
+		event05 = "I started a new job"
+		event06 = "I graduated from school"
+		event07 = "I received a work-related promotion"
+		event24 = "I started school or college/university"
+		event25 = "I received a work-related demotion"
+
+	# RELATIONSHIP
+		event08 = "I started dating someone new"
+		event09 = "My partner did something special for me"
+		event10 = "My partner and I were physically apart from one another for 
+			   more than two days due to work, travel, school, etc." 
+		event11 = "My partner and I got in a fight or argument"
+		event12 = "I became engaged to get married"
+		event13 = "I got married"
+		event22 = "My partner and I broke up"
+		event23 = "My partner and I divorced"
+
+	# FAMILY
+		event14 = "A close friend or family member passed away"
+		event15 = "I found out that I or my partner was pregnant"
+		event16 = "I or my partner gave birth"  
+		event17 = "I found out a close friend or family member was seriously ill"
+
+	# LOCATION
+
+		event18 = "I moved to a new location"
+
+	# LEISURE
+
+		event19 = "I accomplished something I was proud of"
+		event20 = "I took a vacation or went on holiday"
+		event21 = "I visited with friends or family that I do not get to see often"
+
+
+
+
+
+
+"event01a_01" - "event01a_24"     
+"event01b_01" - "event01b_24"           
+"event01c_01" - "event01c_24" 
+and related
+
+	Life Event Followup Questions
+
+	If the respondent indicated that a life event had taken place since the last assessment, the
+	respondent was asked additional questions about the event.
+
+	Those responses are represented as follows: eventXXa_YY, eventXXb_YY, eventXXc_YY,
+	where XX is the identifier for the event (see above) such that event20 refers to
+	"I took a vacation or went on holiday" and YY refers to the assessment wave (01 - 24).
+
+	The a, b, and c in the variable labels refer to responses to the following questions 
+	for the event in question:
+
+	a = "This was a positive and rewarding experience." (1 = Strongly Disagree to 5 = Strongly Agree)
+	b = "This was a stressful experience."  (1 = Strongly Disagree to 5 = Strongly Agree)
+	c = "Approximately how many days ago did this take place?" (pull down menu ranging from 0 to 
+	"more than 40 days ago". These responses are coded numerically, ranging from 0 to 40.
+
+	Example: event07b_04 refers to respondents' ratings of the stressfulness (b) of receiving 
+	a work-related promotion (event07) at assessment wave 4 (_04). 
+
+	Most of these variables are NA (missing) because the questions are only asked about the event
+	if the person indicated that the event had taken place. Responses DO NOT default to 0 for these
+	specific items (in contast to the binary "did the event take place or not" items above).
+
+
+	People were also given the opportunity to write about these life events using a textbox/textarea. 
+	I have not included those data here because some of those data 
+	could be used to identify participants, depending on what they wrote.
+
+
+        
+"event14fd_01" - "event14fd_24" 
+
+	[Note to self **] Need to explain this and double-check it. Questions about who was lost for
+	those who lost someone.
+
+
+"rand_work_01" - "rand_work_24"    
+
+	Work Satisfaction Composite
+
+	These items were administered randomly across waves for a brief period of time.
+	Participants who indicated that they were employed were asked to rate their 
+	satisfaction with their job on a 1 (Strongly Disagree) to 5 scale (Strongly Agree).
+
+	Instructions:
+	Some jobs are more interesting and satisfying than others.  We want to know how you feel about 
+	your job.  For each statement below, use the following scale to indicate which 
+	is most descriptive of your current job:"
+
+	Items
+	"I feel fairly well satisfied with my present job.",
+	"Most days I am enthusiastic about my work.",
+	"Each day of work seems like it will never end.",
+	"I find real enjoyment in my work.",
+	"I consider my job rather unpleasant."
+
+
+
+"rand_cwb_01" - "rand_cwb_24"
+
+	Counter-productive Work Behaviors (CWB) (Interpersonal)
+	 
+	These items were administered randomly across waves for a brief period of time.
+	Participants who indicated that they were employed were asked to rate each item 
+	on a 1 (Strongly Disagree) to 5 scale (Strongly Agree).
+
+	Instructions:
+	"Please indicate the extent to which you have engaged in each of the following behaviors in the past month."
+
+	Items:
+	"Made fun of someone at work",
+	"Said something hurtful to someone at work",
+	"Made an ethnic, religious, or racial remark at work",
+	"Cursed at someone at work",
+	"Played a mean prank on someone at work",
+	"Acted rudely toward someone at work",
+	"Publicly embarrassed someone at work"
+	
+
+"whoto01_01" - "whoto01_24"            
+"whoto02_01" - "whoto02_24"            
+"whoto03_01" - "whoto03_24"            
+"whoto04_01" - "whoto04_24"            
+"whoto05_01" - "whoto05_24"            
+"whoto06_01" - "whoto06_24"    
+
+	WHOTO 
+	Who do people use as attachment figures?
+
+	We used the version of the WHOTO published below:
+	Fraley, R. C., & Davis, K. E. (1997). Attachment formation and transfer in young adults' 
+	close friendships and romantic relationships. Personal Relationships, 4, 131-144. 
+
+	Instructions
+	"Please select one option from the pull-down menus for each of the following questions. 
+	We realize that two or more people may be equally appropriate for some of these questions, 
+	but we encourage you to nominate a single person for each item." 
+
+	Variables are named as whotoXX_YY, where XX refers to the question (see below) and
+	YY refers to the assessment wave (01-24). The WHOTO was not consistently administered
+	until 2017, thus there will be fewer data for this measure than for others.
+
+	WHOTO questions, corresponding to whotoXX (01-06)
+
+	01. Who is the person you most like to spend time with?
+	02. Who is the person you don't like to be away from?
+	03. Who is the person you want to be with when you are feeling upset or down?
+	04. Who is the person you would count on for advice?
+	05. Who is the person you would want to tell first if you achieved something good?
+	06. Who is the person you can always count on?
+
+	Response options for each question. Only one can be selected.
+
+	<OPTION VALUE = 'mother' >mother</OPTION>
+	<OPTION VALUE = 'father' >father</OPTION>
+	<OPTION VALUE = 'friend' >friend</OPTION>
+	<OPTION VALUE = 'sibling'>sibling</OPTION>
+	<OPTION VALUE = 'other'  >other</OPTION>
+	<OPTION VALUE = 'partner'>partner</OPTION>
+
+	Responses are saved as character/factor data. People were also given the opportunity to explain
+	'other' but I have not included those data here because some of those data might 
+	be able to be used to id participants, depending on what they wrote.
+	
+
+
+
+whoto_mother_01-24
+whoto_father_01-24
+whoto_partner_01-24
+whoto_friend_01-24
+whoto_sibling_01-24
+whoto_other_01-24
+
+
+	WHOTO numeric scores
+
+	These scores are measurements of the extent to which a person (e.g., mother) is used as
+	an attachment figure. The higher the score, the more attachment functions the person serves.
+
+
+	These are scores computed from the WHOTO nomination data. In short, each potential target person
+	(e.g., mother, father, partner) receives a point each time he or she is nominated
+	for whoto01-whoto06. Thus, a person who nominates mother for each of the six whoto items
+	would receive a score of 6 for whoto_mother. A person who nominated mother for two of those
+	items and father for the other four would receive a score of 2 for whoto_mother and
+	a score of 4 for whoto_father. 
+
+	Because people were only allowed to nominate one person for each of the six WHOTO items,
+	the scores are necessarily negatively correlated (i.e., the more times mother is nominated,
+	the fewer times someone else can be nominated.)
+
+
+
+
+social_network_01 - 24
+mastery_01 - 24
+resilience_01-24
+cog_flex_01-24
+
+	Cognitive, Social, and Psychological Resources
+
+	Repeated measures for surveys Omri added. These are explained above. These specific variables
+	represent the assessments over time--on occasions in which this survey was administed, which
+	was random (not at every assessment wave). 
+
+
+
+
+npi_01-24
+nip_leadership_01-24
+npi_exhibitionism_01-24
+npi_vanity_01-24
+
+	Narcissism
+
+	Repeated measures for NPI, as explained above. These specific variables
+	represent the assessments over time--on occasions in which this survey was administed, which
+	was random (not at every assessment wave). 
+
+
+
+
+
+"submission_date_01" - "submission_date_24"   (wide form)
+(submission_date) (long form)
+
+	Submission Date
+
+	This is the date that the survey/assessment wave was completed by the participant. 
+
+	submission_date_YY where YY is the assessment wave (01-24)
+
+	The date is in the following format: YYYY-MM-DD HH:MM:SS and was recorded using the date function
+	on the web server and not the user's computer. 
+	
+	Example date/time: 2015-06-02 06:26:45
+
+
+
+"submissionday_01" - "submissionday_24" (wide form)
+(submission_date2) (long form)
+
+
+	Submission Date (Days since 2014-01-01)
+
+	This is a recoding of the previous information (i.e., submission_date_YY) to facilitate quantitative 
+	analyses. Each date is recoded (using only date information and not time information) to represent the 
+	number of days since 2014-01-01. This allows for a way to treat time (or a base for time 
+	transformations) in models where time, rather than wave, is used.
+
+	Note: The built-in R function uses 1970 as the origin. To minimize the spread of numbers, I further
+	adjusted the values for 2014-01-01. We will prob need to transform this further to make the range
+	of values less wide (see below).
+
+
+"daysfromstart_01" - "daysfromstart_24" (wide form)
+(submission_date3) (long forms)
+
+	Submission Date (Within Person - Initial assessment as 0)
+
+	This representation of time codes the number of days that have elapsed since the person's
+	initial assessment. (It is computed as the difference between the date at wave k and wave 1. Thus,
+	the initial wave is coded as 0 because it is 0 days from itself.) For many purposes, this representation
+	of time will be most appropriate for within-person analyses or as a base for other computations.
+	However, it might require rescaling for analysis purposes because the range will be exceptionally 
+	large compared to many of the other measurements (which are often on 1 to 5 scales). (see below)
+
+"daysverse_01" - "daysverse_24" (wide form)
+(submission_date4)(long form)
+
+	Submission Date (Within Person - Final assessment as 0)
+
+	This representation of time codes the number of days from the final assessment. 
+	(It is computed as the difference between the last assessment date and the wave in question. Thus,
+	dates are negative and approach 0.) This representation of time is needed for some of the setpoint/
+	prototype model analyses I plan to conduct. Like the other time scores, it might need to be rescaled
+	to minimize the absolute range of the values (see below).
+	
+
+submission_date3_365 (long stacked version only)
+
+	Submission Date (Within Person - Initial assessment as 0, divided by 365)
+
+	This is a representation of time that codes the number of days that have elapsed since 
+	the person's initial assessment, but scaled in the metric of years. This is the same
+	variable as submission_date3, but where all values are divided by 365 to put time
+	in the metric of years. (Thus, a score of 1 means "1 year since the first assessment".)
+
+
+submission_date4_365 (long stacked version only)
+
+	Submission Date (Within Person - Final assessment as 0, divided by 365)
+
+	Same as submission_date4, but divided by 365 to put the variable on the metric of years rather
+	than days.
+
+
+
+
+"rlength_01" - "rlength_24"
+
+	Relationship Length
+
+	This is allowed to vary within-persons simply because people have the opportunity to 
+	end and start new relationships. Otherwise, it should vary almost perfectly with some index of time.
+
+	This variable is computed internally. Participants were asked what year and month
+	their relationship had started. (These are stored in the server mySQL database as 
+	rlengthyears and rlengthmonths).
+	
+	From that information, a YYYY-MM date is created for the start of the relationship. That date
+	is then subtracted from the date of submission for the wave in question. The result
+	is a value that represents the number of DAYS that has transpired since the start of the
+	relationship and the date the assessment was completed. (If one wishes, this value can be divided by
+	365 to put it in a year-based metric rather than a day-based metric.)
+
+	Note: Some (a handful) of the values are negative simply due to approximations and incomplete information. 
+	For example, if someone did not record the month the relationship started and only the year, the month was
+	set to Jan/01 for the purposes of the calculations. 
+
+
+
+
+
+
+
+
+
+
+"eventba01" - "eventba25"
+
+	Before/After or Pre/Post Event Information
+	
+	Only exists in the long version of the files. Separate variable for each of the 25 events. 
+	Represents whether the assessment wave in question occurred prior to or after the onset of an 
+	event (e.g., job loss). If the event never occurs, the person will have a 0 for each wave.
+	Once the event has occurred, the person will get a 1 for that wave and all waves that follow.
+	If the event took place in the 30-days before the initial survey, the person will have 1's for
+	every wave. This coding system is designed to partition time into "before and after" periods for
+	each event, even if the event can, in theory, occur more than once.
+
+timec01 - timec25  
+
+	Time Centered on Event 
+	(long stacked version only; created separately for expore and confirm samples; not in core file)
+
+	A within-person version of time that is centered on the first occurance of an event. The different
+	variables (i.e., 01 - 25) represent each of the 25 assessed events.
+	
+	timec01, for example, represents a version of time for each person where 0 is the wave
+	for the event in question and negative values are before and positive values are after. 
+	If the event did not happen for the person, this is missing. In metric of years, thus a
+	value of 1 means "assessment wave 1 year since the onset of the event." If the event never 
+	occurred for a person, missing values.
+
+timec01_square - timec25_square  (long stacked version only)
+
+	Time Centered on Event (Squared)
+	(long stacked version only; created separately for expore and confirm samples; not in core file)
+
+	Same as above, but squared values in case quadratics need to be examined.
+
+aveba01 - aveba25  (long stacked version only)
+
+	Average Number of Occasions in Post-Event Phase
+	(long stacked version only; not in core file)
+
+	This represents, for each event (01 - 25), the average value of the before-after code for that person.
+	Thus, if a person got ill early in the study, the person will have a lot of 1's for 
+	eventba01 compared to someone who got ill near the end of the study. This is a between-persons or 
+	level 2 variable that can be used to control between-person differences in mean levels of eventba01 (or 
+	any other event) in analyses that examine within-person effects of eventba.
+
+	Note: This should be centered within any sample in which is it used so that the zero point is meaningful.
+		
+aveevent01 - aveevent25  (long stacked version only)
+
+	Average Number of Events 
+	(long stacked version only; not in core file)
+
+	This represents, for each event (01 - 25), the average number of such events the person experienced.
+	Thus, if a person got ill often, he or she will have a larger value for aveevent01 than someone
+	who got ill less often. This is a level 2 or between-person variable for each event.
+
+	Note: This should be centered within any sample in which is it used so that the zero point is meaningful.
