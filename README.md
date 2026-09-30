@@ -19,6 +19,8 @@ Two html-documents that are generated from Quarto scripts (.qmd) transparently s
 
 To access these html-documents, please click on them, then on the "..." button, and select "Download". Alternatively, download the entire repository by clicking on the green "Code" button and then on "Download ZIP".  
 
+[When viewing the repository through the service *Anonymous GitHub*, simply select the respective file on the left and click "Download". Alternatively, select "Full repo ZIP" on the top right to download all files.]  
+
 ## Instructions to reproduce
 
 How to computationally reproduce results in the manuscript “Changes in Single People’s Attachment Models and Co-Development with Life Satisfaction” (as well as additional, supplementary results)
@@ -27,7 +29,9 @@ How to computationally reproduce results in the manuscript “Changes in Single 
 
 This manuscript uses data collected as part of the yourPersonality Project which was approved by the Institutional Review Board at the University of Illinois at Urbana-Champaign (protocol number 17,382). We don’t upload the primary data here but instead the cleaned (processed data), which we created in "01_clean_data.qmd".  
 
-To retrieve all relevant R-files, download the repository by clicking on the green "Code" button and then on "Download ZIP". Unzip the files, and open the folder.
+To retrieve all relevant R-files, download the repository by clicking on the green "Code" button and then on "Download ZIP". Unzip the files, and open the folder.  
+
+[When viewing the repository through the service *Anonymous GitHub*, simply select "Full repo ZIP" on the top right to download all files.]  
 
 ### Cleaning and analyses
 
