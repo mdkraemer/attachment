@@ -47,9 +47,10 @@ quarto::quarto_render("01_clean_data.qmd",
 # (2)
 quarto::quarto_render("02_analyses.qmd",
                       output_file = "02_analyses.html", output_format="html") 
-# this one takes a long time (because of the SEMs); I always ran it overnight; ~17 hours run time
+# this script takes a long time (because of the SEMs); I always ran it overnight; ~17 hours run time
 # -> all models and model fit objects are saved and can be re-imported in subsequent renders
-# -> see YAML header of this .qmd script to toggle this on/off! 
+# -> see YAML header of this .qmd script to toggle this option on/off! 
 
-# If this throws an error message, open the script within the R-Project and run by hand
+# If one of these scripts throws an error message when rendering, please open the script within the R-Project 
+# and run by step-by-step.
 
